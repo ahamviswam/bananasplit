@@ -4,6 +4,10 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+# SQLite database files (local only — Railway uses a volume or ephemeral DB)
 *.db
 *.db-shm
 *.db-wal
+# Environment
+.env
+.env.local
