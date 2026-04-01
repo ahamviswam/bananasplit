@@ -3,6 +3,8 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { insertGroupSchema, insertMemberSchema, insertSessionSchema, insertExpenseSchema, insertPaymentSchema } from "@shared/schema";
 import { z } from "zod";
+import bcrypt from "bcryptjs";
+import { signToken, authMiddleware, getUser } from "./auth";
 
 // ── Balance calculation helpers ───────────────────────────────────────────────
 function computeBalances(groupId: number) {
@@ -65,73 +67,121 @@ function simplifyDebts(net: Record<number, number>): { from: number; to: number;
 }
 
 export function registerRoutes(httpServer: Server, app: Express) {
-  // ── Groups ──────────────────────────────────────────────────────────────────
-  app.get("/api/groups", (_req, res) => {
-    const allGroups = storage.getGroups();
+  // ── Auth routes (public — no auth middleware) ────────────────────────────────
+  app.post("/api/auth/register", async (req, res) => {
+    const { email, name, password } = req.body;
+    if (!email || !name || !password) {
+      return res.status(400).json({ error: "Email, name and password are required" });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
+    const existing = storage.getUserByEmail(email);
+    if (existing) {
+      return res.status(409).json({ error: "An account with this email already exists" });
+    }
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = storage.createUser({
+      email: email.toLowerCase().trim(),
+      name: name.trim(),
+      passwordHash,
+      createdAt: new Date().toISOString(),
+    });
+    const token = signToken({ userId: user.id, email: user.email, name: user.name });
+    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name } });
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+    const user = storage.getUserByEmail(email);
+    if (!user) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    const token = signToken({ userId: user.id, email: user.email, name: user.name });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+  });
+
+  app.get("/api/auth/me", authMiddleware, (req, res) => {
+    const user = getUser(req);
+    res.json({ id: user.userId, email: user.email, name: user.name });
+  });
+
+  // ── Groups (protected) ───────────────────────────────────────────────────────
+  app.get("/api/groups", authMiddleware, (req, res) => {
+    const user = getUser(req);
+    const allGroups = storage.getGroups(user.userId);
     res.json(allGroups);
   });
 
-  app.get("/api/groups/:id", (req, res) => {
+  app.get("/api/groups/:id", authMiddleware, (req, res) => {
     const group = storage.getGroup(Number(req.params.id));
     if (!group) return res.status(404).json({ error: "Group not found" });
     res.json(group);
   });
 
-  app.post("/api/groups", (req, res) => {
-    const parsed = insertGroupSchema.safeParse({ ...req.body, createdAt: new Date().toISOString() });
+  app.post("/api/groups", authMiddleware, (req, res) => {
+    const user = getUser(req);
+    const parsed = insertGroupSchema.safeParse({ ...req.body, ownerId: user.userId, createdAt: new Date().toISOString() });
     if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
     const group = storage.createGroup(parsed.data);
     res.status(201).json(group);
   });
 
-  app.patch("/api/groups/:id", (req, res) => {
+  app.patch("/api/groups/:id", authMiddleware, (req, res) => {
     const group = storage.updateGroup(Number(req.params.id), req.body);
     if (!group) return res.status(404).json({ error: "Group not found" });
     res.json(group);
   });
 
-  app.delete("/api/groups/:id", (req, res) => {
+  app.delete("/api/groups/:id", authMiddleware, (req, res) => {
     storage.deleteGroup(Number(req.params.id));
     res.status(204).send();
   });
 
   // ── Members ─────────────────────────────────────────────────────────────────
-  app.get("/api/groups/:groupId/members", (req, res) => {
+  app.get("/api/groups/:groupId/members", authMiddleware, (req, res) => {
     const membersList = storage.getMembersByGroup(Number(req.params.groupId));
     res.json(membersList);
   });
 
-  app.post("/api/groups/:groupId/members", (req, res) => {
+  app.post("/api/groups/:groupId/members", authMiddleware, (req, res) => {
     const parsed = insertMemberSchema.safeParse({ ...req.body, groupId: Number(req.params.groupId) });
     if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
     const member = storage.createMember(parsed.data);
     res.status(201).json(member);
   });
 
-  app.patch("/api/members/:id", (req, res) => {
+  app.patch("/api/members/:id", authMiddleware, (req, res) => {
     const member = storage.updateMember(Number(req.params.id), req.body);
     if (!member) return res.status(404).json({ error: "Member not found" });
     res.json(member);
   });
 
-  app.delete("/api/members/:id", (req, res) => {
+  app.delete("/api/members/:id", authMiddleware, (req, res) => {
     storage.deleteMember(Number(req.params.id));
     res.status(204).send();
   });
 
   // ── Sessions ────────────────────────────────────────────────────────────────
-  app.get("/api/groups/:groupId/sessions", (req, res) => {
+  app.get("/api/groups/:groupId/sessions", authMiddleware, (req, res) => {
     const sessionList = storage.getSessionsByGroup(Number(req.params.groupId));
     res.json(sessionList);
   });
 
-  app.get("/api/sessions/:id", (req, res) => {
+  app.get("/api/sessions/:id", authMiddleware, (req, res) => {
     const session = storage.getSession(Number(req.params.id));
     if (!session) return res.status(404).json({ error: "Session not found" });
     res.json(session);
   });
 
-  app.post("/api/groups/:groupId/sessions", (req, res) => {
+  app.post("/api/groups/:groupId/sessions", authMiddleware, (req, res) => {
     const parsed = insertSessionSchema.safeParse({
       ...req.body,
       groupId: Number(req.params.groupId),
@@ -208,29 +258,29 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.status(201).json(session);
   });
 
-  app.patch("/api/sessions/:id", (req, res) => {
+  app.patch("/api/sessions/:id", authMiddleware, (req, res) => {
     const session = storage.updateSession(Number(req.params.id), req.body);
     if (!session) return res.status(404).json({ error: "Session not found" });
     res.json(session);
   });
 
-  app.delete("/api/sessions/:id", (req, res) => {
+  app.delete("/api/sessions/:id", authMiddleware, (req, res) => {
     storage.deleteSession(Number(req.params.id));
     res.status(204).send();
   });
 
   // ── Expenses ────────────────────────────────────────────────────────────────
-  app.get("/api/sessions/:sessionId/expenses", (req, res) => {
+  app.get("/api/sessions/:sessionId/expenses", authMiddleware, (req, res) => {
     const expenseList = storage.getExpensesBySession(Number(req.params.sessionId));
     res.json(expenseList);
   });
 
-  app.get("/api/groups/:groupId/expenses", (req, res) => {
+  app.get("/api/groups/:groupId/expenses", authMiddleware, (req, res) => {
     const expenseList = storage.getExpensesByGroup(Number(req.params.groupId));
     res.json(expenseList);
   });
 
-  app.post("/api/sessions/:sessionId/expenses", (req, res) => {
+  app.post("/api/sessions/:sessionId/expenses", authMiddleware, (req, res) => {
     const session = storage.getSession(Number(req.params.sessionId));
     if (!session) return res.status(404).json({ error: "Session not found" });
 
@@ -245,13 +295,13 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.status(201).json(expense);
   });
 
-  app.delete("/api/expenses/:id", (req, res) => {
+  app.delete("/api/expenses/:id", authMiddleware, (req, res) => {
     storage.deleteExpense(Number(req.params.id));
     res.status(204).send();
   });
 
   // ── Balances ────────────────────────────────────────────────────────────────
-  app.get("/api/groups/:groupId/balances", (req, res) => {
+  app.get("/api/groups/:groupId/balances", authMiddleware, (req, res) => {
     const net = computeBalances(Number(req.params.groupId));
     const transactions = simplifyDebts(net);
     const membersList = storage.getMembersByGroup(Number(req.params.groupId));
@@ -264,12 +314,12 @@ export function registerRoutes(httpServer: Server, app: Express) {
   });
 
   // ── Payments ────────────────────────────────────────────────────────────────
-  app.get("/api/groups/:groupId/payments", (req, res) => {
+  app.get("/api/groups/:groupId/payments", authMiddleware, (req, res) => {
     const paymentList = storage.getPaymentsByGroup(Number(req.params.groupId));
     res.json(paymentList);
   });
 
-  app.post("/api/groups/:groupId/payments", (req, res) => {
+  app.post("/api/groups/:groupId/payments", authMiddleware, (req, res) => {
     const parsed = insertPaymentSchema.safeParse({
       ...req.body,
       groupId: Number(req.params.groupId),
@@ -280,13 +330,13 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.status(201).json(payment);
   });
 
-  app.delete("/api/payments/:id", (req, res) => {
+  app.delete("/api/payments/:id", authMiddleware, (req, res) => {
     storage.deletePayment(Number(req.params.id));
     res.status(204).send();
   });
 
   // ── Settle-up report ────────────────────────────────────────────────────────
-  app.get("/api/groups/:groupId/report", (req, res) => {
+  app.get("/api/groups/:groupId/report", authMiddleware, (req, res) => {
     const groupId = Number(req.params.groupId);
     const group = storage.getGroup(groupId);
     if (!group) return res.status(404).json({ error: "Group not found" });

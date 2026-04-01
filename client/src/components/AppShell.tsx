@@ -1,7 +1,10 @@
 import { Link, useLocation } from "wouter";
-import { Sun, Moon, ChevronLeft } from "lucide-react";
+import { Sun, Moon, ChevronLeft, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useTheme } from "@/components/ThemeProvider";
+import { useAuth } from "@/components/AuthProvider";
 import { cn } from "@/lib/utils";
 
 // ── Inline SVG Logo ────────────────────────────────────────────────────────────
@@ -47,6 +50,7 @@ interface AppShellProps {
 
 export function AppShell({ title, backHref, actions, children }: AppShellProps) {
   const { theme, toggleTheme } = useTheme();
+  const { user, logout } = useAuth();
   const [location] = useLocation();
   const isHome = location === "/";
 
@@ -97,6 +101,34 @@ export function AppShell({ title, backHref, actions, children }: AppShellProps) 
             >
               {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </Button>
+            {/* User menu */}
+            {user && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="rounded-full" data-testid="btn-user-menu">
+                    <Avatar className="w-7 h-7">
+                      <AvatarFallback className="text-xs bg-primary text-primary-foreground">
+                        {user.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <div className="px-3 py-2">
+                    <p className="text-sm font-semibold truncate">{user.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                  </div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive cursor-pointer"
+                    onClick={logout}
+                    data-testid="btn-logout"
+                  >
+                    <LogOut className="w-4 h-4 mr-2" /> Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
       </header>

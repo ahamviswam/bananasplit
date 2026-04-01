@@ -1,29 +1,78 @@
 /**
- * In-memory data store that mirrors the backend API exactly.
- * Used for the static/hosted deployment where no Express server is available.
- * Data lives in-memory for the session (resets on page refresh).
+ * BananaSplit in-memory store with IndexedDB persistence.
+ *
+ * - On first load: all data is loaded from IndexedDB into memory.
+ * - Every write: immediately mirrored to IndexedDB so data survives refresh.
+ * - Reads: always from memory (instant, no async needed).
+ *
+ * This means the GitHub Pages version (no Express backend) persists data
+ * across page refreshes, browser restarts, etc. — just like a real DB.
  */
 
+import { loadAll, putRecord, deleteRecord } from "./db";
 import type {
-  Group, InsertGroup,
-  Member, InsertMember,
-  Session, InsertSession,
-  Expense, InsertExpense,
-  Payment, InsertPayment,
+  Group, Member, Session, Expense, Payment,
 } from "@shared/schema";
 
-// ── Auto-increment IDs ─────────────────────────────────────────────────────────
-let _id = 1;
-const nextId = () => _id++;
+// ── In-memory tables ──────────────────────────────────────────────────────────
+// Local users for offline/GitHub Pages mode
+type LocalUser = { id: number; email: string; name: string; passwordHash: string };
+let localUsers: LocalUser[] = [];
+let currentUserId = 1; // default offline user id
 
-// ── Tables ─────────────────────────────────────────────────────────────────────
 let groups: Group[] = [];
 let members: Member[] = [];
 let sessions: Session[] = [];
 let expenses: Expense[] = [];
 let payments: Payment[] = [];
 
-// ── Balance helpers ────────────────────────────────────────────────────────────
+let _id = 1;
+const nextId = () => _id++;
+
+// ── Initialization ────────────────────────────────────────────────────────────
+let _initPromise: Promise<void> | null = null;
+
+export function initStore(): Promise<void> {
+  if (_initPromise) return _initPromise;
+  _initPromise = (async () => {
+    try {
+      [groups, members, sessions, expenses, payments] = await Promise.all([
+        loadAll<Group>("groups"),
+        loadAll<Member>("members"),
+        loadAll<Session>("sessions"),
+        loadAll<Expense>("expenses"),
+        loadAll<Payment>("payments"),
+      ]);
+      // Restore local offline users (stored with negative IDs)
+      localUsers = (groups.filter((g: any) => g.id < 0) as any[]).map((u: any) => ({
+        id: -u.id, email: u.email, name: u.name, passwordHash: "offline"
+      }));
+      groups = groups.filter(g => g.id > 0);
+      // Restore currentUserId from saved auth token
+      try {
+        const token = sessionStorage.getItem("bs_auth_token") || localStorage.getItem("bs_auth_token");
+        if (token?.startsWith("offline-")) {
+          currentUserId = Number(token.replace("offline-", ""));
+        }
+      } catch {}
+      // Set _id above the max existing id so new records don't clash
+      const allIds = [
+        ...groups.map(x => x.id),
+        ...members.map(x => x.id),
+        ...sessions.map(x => x.id),
+        ...expenses.map(x => x.id),
+        ...payments.map(x => x.id),
+      ];
+      if (allIds.length > 0) _id = Math.max(...allIds) + 1;
+    } catch (e) {
+      // IndexedDB unavailable (e.g. private browsing on some browsers) — silent fallback
+      console.warn("IndexedDB unavailable, using in-memory only:", e);
+    }
+  })();
+  return _initPromise;
+}
+
+// ── Balance helpers ───────────────────────────────────────────────────────────
 function computeBalances(groupId: number) {
   const membersList = members.filter(m => m.groupId === groupId);
   const allExpenses = expenses.filter(e => e.groupId === groupId);
@@ -67,15 +116,40 @@ function simplifyDebts(net: Record<number, number>) {
   return txns;
 }
 
-// ── Route handler ──────────────────────────────────────────────────────────────
-// Simulates Express routes as in-memory functions, returning JSON-serializable data
-
+// ── Route handler ─────────────────────────────────────────────────────────────
 export function handleMemoryRequest(method: string, path: string, body?: any): any {
   const now = new Date().toISOString();
   const today = now.split("T")[0];
 
-  // ── Groups ──
-  if (method === "GET" && path === "/api/groups") return groups;
+  // ── Auth (offline mode — simple email+name registration, no real passwords) ————————
+  if (method === "POST" && path === "/api/auth/register") {
+    const { email, name } = body;
+    const existing = localUsers.find(u => u.email === email?.toLowerCase());
+    if (existing) throw { status: 409, message: "Email already registered" };
+    const user: LocalUser = { id: nextId(), email: email.toLowerCase(), name, passwordHash: "offline" };
+    localUsers.push(user);
+    putRecord("groups", { id: -user.id, ...user } as any); // persist user id (fire-and-forget)
+    currentUserId = user.id;
+    return { token: `offline-${user.id}`, user: { id: user.id, email: user.email, name: user.name } };
+  }
+
+  if (method === "POST" && path === "/api/auth/login") {
+    const { email } = body;
+    const user = localUsers.find(u => u.email === email?.toLowerCase());
+    if (!user) throw { status: 401, message: "No account found. Please register first." };
+    currentUserId = user.id;
+    return { token: `offline-${user.id}`, user: { id: user.id, email: user.email, name: user.name } };
+  }
+
+  if (method === "GET" && path === "/api/auth/me") {
+    const user = localUsers.find(u => u.id === currentUserId);
+    if (!user) throw { status: 401, message: "Not authenticated" };
+    return { id: user.id, email: user.email, name: user.name };
+  }
+
+  // ── Groups ──────────────────────────────────────────────────────────────────
+  if (method === "GET" && path === "/api/groups")
+    return groups.filter(g => g.ownerId === currentUserId || g.ownerId === 0);
 
   if (method === "GET" && path.match(/^\/api\/groups\/\d+$/)) {
     const id = Number(path.split("/")[3]);
@@ -85,8 +159,9 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
   }
 
   if (method === "POST" && path === "/api/groups") {
-    const g: Group = { id: nextId(), name: body.name, description: body.description ?? null, createdAt: now };
+    const g: Group = { id: nextId(), ownerId: currentUserId, name: body.name, description: body.description ?? null, createdAt: now };
     groups.push(g);
+    putRecord("groups", g);
     return g;
   }
 
@@ -95,16 +170,18 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
     const idx = groups.findIndex(x => x.id === id);
     if (idx === -1) throw { status: 404, message: "Group not found" };
     groups[idx] = { ...groups[idx], ...body };
+    putRecord("groups", groups[idx]);
     return groups[idx];
   }
 
   if (method === "DELETE" && path.match(/^\/api\/groups\/\d+$/)) {
     const id = Number(path.split("/")[3]);
     groups = groups.filter(x => x.id !== id);
+    deleteRecord("groups", id);
     return null;
   }
 
-  // ── Members ──
+  // ── Members ─────────────────────────────────────────────────────────────────
   if (method === "GET" && path.match(/^\/api\/groups\/\d+\/members$/)) {
     const gid = Number(path.split("/")[3]);
     return members.filter(m => m.groupId === gid);
@@ -114,6 +191,7 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
     const gid = Number(path.split("/")[3]);
     const m: Member = { id: nextId(), groupId: gid, name: body.name, color: body.color };
     members.push(m);
+    putRecord("members", m);
     return m;
   }
 
@@ -122,16 +200,18 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
     const idx = members.findIndex(x => x.id === id);
     if (idx === -1) throw { status: 404, message: "Member not found" };
     members[idx] = { ...members[idx], ...body };
+    putRecord("members", members[idx]);
     return members[idx];
   }
 
   if (method === "DELETE" && path.match(/^\/api\/members\/\d+$/)) {
     const id = Number(path.split("/")[3]);
     members = members.filter(x => x.id !== id);
+    deleteRecord("members", id);
     return null;
   }
 
-  // ── Sessions ──
+  // ── Sessions ────────────────────────────────────────────────────────────────
   if (method === "GET" && path.match(/^\/api\/groups\/\d+\/sessions$/)) {
     const gid = Number(path.split("/")[3]);
     return sessions.filter(s => s.groupId === gid);
@@ -162,8 +242,9 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
       createdAt: now,
     };
     sessions.push(s);
+    putRecord("sessions", s);
 
-    // Auto-create court fee expense
+    // Auto-create court fee expense(s)
     if (s.courtFee > 0) {
       const participantIds: number[] = JSON.parse(s.participantIds);
       const playtimeData: { memberId: number; minutes: number }[] = JSON.parse(s.playtimeData);
@@ -186,14 +267,30 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
         const primaryPayer = s.courtFeePaidByMemberId ?? participantIds[0];
         const coPayer = s.courtFeeCoPayerId;
 
+        const addExpense = (desc: string, amount: number, payer: number, split: { memberId: number; amount: number }[]) => {
+          const e: Expense = {
+            id: nextId(),
+            sessionId: s.id,
+            groupId: gid,
+            description: desc,
+            amount,
+            paidByMemberId: payer,
+            splitMethod: s.splitMethod,
+            splitData: JSON.stringify(split),
+            createdAt: now,
+          };
+          expenses.push(e);
+          putRecord("expenses", e);
+        };
+
         if (coPayer && coPayer !== primaryPayer) {
           const half = Math.round((s.courtFee / 2) * 100) / 100;
           const half2 = Math.round((s.courtFee - half) * 100) / 100;
           const halfSplit = splitData.map(x => ({ memberId: x.memberId, amount: Math.round((x.amount / 2) * 100) / 100 }));
-          expenses.push({ id: nextId(), sessionId: s.id, groupId: gid, description: `Court fee (shared) — ${s.name}`, amount: half, paidByMemberId: primaryPayer, splitMethod: s.splitMethod, splitData: JSON.stringify(halfSplit), createdAt: now });
-          expenses.push({ id: nextId(), sessionId: s.id, groupId: gid, description: `Court fee (shared) — ${s.name}`, amount: half2, paidByMemberId: coPayer, splitMethod: s.splitMethod, splitData: JSON.stringify(halfSplit), createdAt: now });
+          addExpense(`Court fee (shared) — ${s.name}`, half, primaryPayer, halfSplit);
+          addExpense(`Court fee (shared) — ${s.name}`, half2, coPayer, halfSplit);
         } else {
-          expenses.push({ id: nextId(), sessionId: s.id, groupId: gid, description: `Court fee — ${s.name}`, amount: s.courtFee, paidByMemberId: primaryPayer, splitMethod: s.splitMethod, splitData: JSON.stringify(splitData), createdAt: now });
+          addExpense(`Court fee — ${s.name}`, s.courtFee, primaryPayer, splitData);
         }
       }
     }
@@ -203,10 +300,11 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
   if (method === "DELETE" && path.match(/^\/api\/sessions\/\d+$/)) {
     const id = Number(path.split("/")[3]);
     sessions = sessions.filter(x => x.id !== id);
+    deleteRecord("sessions", id);
     return null;
   }
 
-  // ── Expenses ──
+  // ── Expenses ────────────────────────────────────────────────────────────────
   if (method === "GET" && path.match(/^\/api\/sessions\/\d+\/expenses$/)) {
     const sid = Number(path.split("/")[3]);
     return expenses.filter(e => e.sessionId === sid);
@@ -233,23 +331,25 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
       createdAt: now,
     };
     expenses.push(e);
+    putRecord("expenses", e);
     return e;
   }
 
   if (method === "DELETE" && path.match(/^\/api\/expenses\/\d+$/)) {
     const id = Number(path.split("/")[3]);
     expenses = expenses.filter(x => x.id !== id);
+    deleteRecord("expenses", id);
     return null;
   }
 
-  // ── Balances ──
+  // ── Balances ─────────────────────────────────────────────────────────────────
   if (method === "GET" && path.match(/^\/api\/groups\/\d+\/balances$/)) {
     const gid = Number(path.split("/")[3]);
     const net = computeBalances(gid);
     return { net, transactions: simplifyDebts(net), members: members.filter(m => m.groupId === gid) };
   }
 
-  // ── Payments ──
+  // ── Payments ─────────────────────────────────────────────────────────────────
   if (method === "GET" && path.match(/^\/api\/groups\/\d+\/payments$/)) {
     const gid = Number(path.split("/")[3]);
     return payments.filter(p => p.groupId === gid);
@@ -268,16 +368,18 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
       createdAt: now,
     };
     payments.push(p);
+    putRecord("payments", p);
     return p;
   }
 
   if (method === "DELETE" && path.match(/^\/api\/payments\/\d+$/)) {
     const id = Number(path.split("/")[3]);
     payments = payments.filter(x => x.id !== id);
+    deleteRecord("payments", id);
     return null;
   }
 
-  // ── Report ──
+  // ── Report ────────────────────────────────────────────────────────────────────
   if (method === "GET" && path.match(/^\/api\/groups\/\d+\/report$/)) {
     const gid = Number(path.split("/")[3]);
     const group = groups.find(x => x.id === gid);

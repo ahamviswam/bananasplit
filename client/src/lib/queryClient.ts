@@ -1,7 +1,13 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { handleMemoryRequest } from "./memoryStore";
 
-const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
+// When running locally (dev server), use relative paths.
+// When deployed on GitHub Pages (no backend), point to Railway.
+const IS_LOCAL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+const RAILWAY_URL = "https://bananasplit-production.up.railway.app";
+const API_BASE = "__PORT_5000__".startsWith("__")
+  ? (IS_LOCAL ? "" : RAILWAY_URL)  // GitHub Pages → use Railway backend
+  : "__PORT_5000__";                // Deployed with real server → use proxy
 
 // ── Backend detection (runs once, all callers share the same promise) ─────────
 let _backendCheckPromise: Promise<boolean> | null = null;
@@ -50,6 +56,13 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+// ── Auth token helper ────────────────────────────────────────────────────────
+function getAuthHeaders(): Record<string, string> {
+  let token: string | null = null;
+  try { token = sessionStorage.getItem("bs_auth_token") || localStorage.getItem("bs_auth_token"); } catch {}
+  return token ? { "Authorization": `Bearer ${token}` } : {};
+}
+
 // ── apiRequest ────────────────────────────────────────────────────────────────
 export async function apiRequest(
   method: string,
@@ -66,7 +79,10 @@ export async function apiRequest(
 
   const res = await fetch(`${API_BASE}${url}`, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: {
+      ...(data ? { "Content-Type": "application/json" } : {}),
+      ...getAuthHeaders(),
+    },
     body: data ? JSON.stringify(data) : undefined,
   });
   if (method !== "DELETE") await throwIfResNotOk(res);
@@ -81,7 +97,7 @@ export async function apiFetch(path: string): Promise<any> {
     await throwIfResNotOk(res.clone());
     return await res.clone().json();
   }
-  const res = await fetch(`${API_BASE}${path}`);
+  const res = await fetch(`${API_BASE}${path}`, { headers: getAuthHeaders() });
   await throwIfResNotOk(res);
   return await res.json();
 }
