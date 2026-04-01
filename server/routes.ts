@@ -67,6 +67,11 @@ function simplifyDebts(net: Record<number, number>): { from: number; to: number;
 }
 
 export function registerRoutes(httpServer: Server, app: Express) {
+  // ── Health check (public — Railway uses this to verify deployment) ────────────
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
   // ── Auth routes (public — no auth middleware) ────────────────────────────────
   app.post("/api/auth/register", async (req, res) => {
     const { email, name, password } = req.body;
