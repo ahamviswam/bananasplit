@@ -15,12 +15,12 @@ const dbPath = process.env.DATABASE_PATH || "bananasplit.db";
 const sqlite = new Database(dbPath);
 const db = drizzle(sqlite);
 
-// Run migrations for new columns (ignore errors if already exist)
+// Run migrations — each is idempotent (safe to run multiple times)
 const migrations = [
   "ALTER TABLE sessions ADD COLUMN court_fee_paid_by_member_id INTEGER",
   "ALTER TABLE sessions ADD COLUMN court_fee_co_payer_id INTEGER",
   "ALTER TABLE sessions ADD COLUMN num_courts INTEGER NOT NULL DEFAULT 1",
-  "ALTER TABLE groups ADD COLUMN owner_id INTEGER NOT NULL DEFAULT 0",
+  // Auth migrations
   `CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT NOT NULL UNIQUE,
@@ -28,15 +28,19 @@ const migrations = [
     password_hash TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`,
+  "ALTER TABLE groups ADD COLUMN owner_id INTEGER NOT NULL DEFAULT 0",
 ];
 for (const m of migrations) {
-  try { sqlite.exec(m); } catch { /* column already exists */ }
+  try { sqlite.exec(m); } catch { /* already exists — safe to ignore */ }
 }
+// Ensure all existing groups get owner_id = 0 (legacy/migrated data)
+try { sqlite.exec("UPDATE groups SET owner_id = 0 WHERE owner_id IS NULL"); } catch {}
 
 // Create tables if they don't exist
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS groups (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    owner_id INTEGER NOT NULL DEFAULT 0,
     name TEXT NOT NULL,
     description TEXT,
     created_at TEXT NOT NULL
