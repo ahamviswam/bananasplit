@@ -15,17 +15,17 @@ let _backendCheckPromise: Promise<boolean> | null = null;
 function checkBackend(): Promise<boolean> {
   if (_backendCheckPromise) return _backendCheckPromise;
   _backendCheckPromise = (async () => {
+    // When pointing at Railway directly, always use backend (skip detection)
+    if (API_BASE === RAILWAY_URL) return true;
     try {
-      const res = await fetch(`${API_BASE}/api/groups`, {
-        signal: AbortSignal.timeout(1500),
+      const res = await fetch(`${API_BASE}/api/health`, {
+        signal: AbortSignal.timeout(2000),
       });
-      // Must be a real 200 OK with a JSON array — not a 404 HTML page from GitHub
       if (!res.ok) return false;
       const text = await res.text();
-      // Only trust it if the response looks like a JSON array (our API returns [])
-      return text.trim().startsWith('[') || text.trim().startsWith('{');
+      return text.includes('"ok"');
     } catch {
-      return false; // fetch failed/timeout → no backend → use memory
+      return false;
     }
   })();
   return _backendCheckPromise;
