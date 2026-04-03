@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
+import { setAuthToken, queryClient } from "@/lib/queryClient";
 
 export interface AuthUser {
   id: number;
@@ -76,6 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (saved) {
       setToken(saved.token);
       setUser(saved.user);
+      setAuthToken(saved.token); // restore in-memory token immediately
     }
     setIsLoading(false);
   }, []);
@@ -85,6 +87,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(data.token);
     setUser(data.user);
     saveAuth(data.token, data.user);
+    setAuthToken(data.token);  // immediately available to all API calls
+    queryClient.invalidateQueries(); // clear any stale cache
   }, []);
 
   const register = useCallback(async (email: string, name: string, password: string) => {
@@ -92,12 +96,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(data.token);
     setUser(data.user);
     saveAuth(data.token, data.user);
+    setAuthToken(data.token);  // immediately available to all API calls
+    queryClient.invalidateQueries();
   }, []);
 
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
     clearAuth();
+    setAuthToken(null);  // clear in-memory token
+    queryClient.clear();
   }, []);
 
   return (

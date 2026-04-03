@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Users, Trash2 } from "lucide-react";
+import { useAuth } from "@/components/AuthProvider";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, apiFetch, queryClient } from "@/lib/queryClient";
 import type { Group } from "@shared/schema";
 import { format } from "date-fns";
 
@@ -20,10 +21,13 @@ export default function GroupsPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Group | null>(null);
+  const { token } = useAuth();
   const { toast } = useToast();
 
   const { data: groups, isLoading } = useQuery<Group[]>({
-    queryKey: ["/api/groups"],
+    queryKey: ["/api/groups", token],
+    enabled: !!token,
+    queryFn: () => apiFetch("/api/groups"),
   });
 
   const createMutation = useMutation({
@@ -31,6 +35,7 @@ export default function GroupsPage() {
       apiRequest("POST", "/api/groups", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/groups", token] });
       setShowCreate(false);
       setName("");
       setDescription("");
@@ -43,6 +48,7 @@ export default function GroupsPage() {
     mutationFn: (id: number) => apiRequest("DELETE", `/api/groups/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/groups", token] });
       setDeleteTarget(null);
       toast({ title: "Group deleted" });
     },

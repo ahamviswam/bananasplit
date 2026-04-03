@@ -56,10 +56,27 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
-// ── Auth token helper ────────────────────────────────────────────────────────
+// ── Auth token — set directly by AuthProvider, no storage reads needed ──────────
+let _authToken: string | null = null;
+
+export function setAuthToken(token: string | null) {
+  _authToken = token;
+  // Also persist to storage as backup
+  try {
+    if (token) {
+      sessionStorage.setItem("bs_auth_token", token);
+      localStorage.setItem("bs_auth_token", token);
+    } else {
+      sessionStorage.removeItem("bs_auth_token");
+      localStorage.removeItem("bs_auth_token");
+    }
+  } catch {}
+}
+
 function getAuthHeaders(): Record<string, string> {
-  let token: string | null = null;
-  try { token = sessionStorage.getItem("bs_auth_token") || localStorage.getItem("bs_auth_token"); } catch {}
+  // First try in-memory token (most reliable), then fall back to storage
+  const token = _authToken
+    || (() => { try { return sessionStorage.getItem("bs_auth_token") || localStorage.getItem("bs_auth_token"); } catch { return null; } })()
   return token ? { "Authorization": `Bearer ${token}` } : {};
 }
 
