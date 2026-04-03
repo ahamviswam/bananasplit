@@ -4,6 +4,7 @@ export interface AuthUser {
   id: number;
   email: string;
   name: string;
+  isAdmin?: boolean;
 }
 
 interface AuthContextValue {

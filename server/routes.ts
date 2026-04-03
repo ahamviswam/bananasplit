@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { insertGroupSchema, insertMemberSchema, insertSessionSchema, insertExpenseSchema, insertPaymentSchema } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { signToken, authMiddleware, getUser } from "./auth";
+import { signToken, authMiddleware, adminMiddleware, getUser } from "./auth";
 
 // ── Balance calculation helpers ───────────────────────────────────────────────
 function computeBalances(groupId: number) {
@@ -92,8 +92,8 @@ export function registerRoutes(httpServer: Server, app: Express) {
       passwordHash,
       createdAt: new Date().toISOString(),
     });
-    const token = signToken({ userId: user.id, email: user.email, name: user.name });
-    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name } });
+    const token = signToken({ userId: user.id, email: user.email, name: user.name, isAdmin: user.isAdmin });
+    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, isAdmin: user.isAdmin } });
   });
 
   app.post("/api/auth/login", async (req, res) => {
@@ -109,13 +109,111 @@ export function registerRoutes(httpServer: Server, app: Express) {
     if (!valid) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
-    const token = signToken({ userId: user.id, email: user.email, name: user.name });
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+    const token = signToken({ userId: user.id, email: user.email, name: user.name, isAdmin: user.isAdmin });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, isAdmin: user.isAdmin } });
   });
 
   app.get("/api/auth/me", authMiddleware, (req, res) => {
     const user = getUser(req);
     res.json({ id: user.userId, email: user.email, name: user.name });
+  });
+
+
+  // ── Admin routes (authMiddleware + adminMiddleware) ──────────────────────────
+  app.get("/api/admin/stats", authMiddleware, adminMiddleware, (req, res) => {
+    const allUsers = storage.getAllUsers();
+    const allGroups = storage.getGroups ? null : null; // handled below
+    // Compute stats across all groups
+    let totalGroups = 0, totalSessions = 0, totalExpenses = 0, totalRevenue = 0;
+    for (const user of allUsers) {
+      const userGroups = storage.getGroups(user.id);
+      totalGroups += userGroups.length;
+      for (const group of userGroups) {
+        const sessions = storage.getSessionsByGroup(group.id);
+        totalSessions += sessions.length;
+        const expenses = storage.getExpensesByGroup(group.id);
+        totalExpenses += expenses.length;
+        totalRevenue += expenses.reduce((sum, e) => sum + e.amount, 0);
+      }
+    }
+    res.json({
+      totalUsers: allUsers.length,
+      totalGroups,
+      totalSessions,
+      totalExpenses,
+      totalRevenue: Math.round(totalRevenue * 100) / 100,
+      newUsersToday: allUsers.filter(u => u.createdAt.startsWith(new Date().toISOString().split("T")[0])).length,
+    });
+  });
+
+  app.get("/api/admin/users", authMiddleware, adminMiddleware, (req, res) => {
+    const allUsers = storage.getAllUsers();
+    const usersWithStats = allUsers.map(u => {
+      const groups = storage.getGroups(u.id);
+      let sessions = 0;
+      for (const g of groups) sessions += storage.getSessionsByGroup(g.id).length;
+      return {
+        id: u.id,
+        email: u.email,
+        name: u.name,
+        isAdmin: u.isAdmin,
+        createdAt: u.createdAt,
+        groupCount: groups.length,
+        sessionCount: sessions,
+      };
+    });
+    res.json(usersWithStats);
+  });
+
+  app.patch("/api/admin/users/:id", authMiddleware, adminMiddleware, (req, res) => {
+    const { isAdmin } = req.body;
+    storage.setUserAdmin(Number(req.params.id), Boolean(isAdmin));
+    res.json({ success: true });
+  });
+
+  app.delete("/api/admin/users/:id", authMiddleware, adminMiddleware, (req, res) => {
+    const id = Number(req.params.id);
+    // Prevent deleting yourself
+    const caller = (req as any).user;
+    if (caller.userId === id) {
+      return res.status(400).json({ error: "Cannot delete your own admin account" });
+    }
+    storage.deleteUser(id);
+    res.status(204).send();
+  });
+
+  app.get("/api/admin/groups", authMiddleware, adminMiddleware, (req, res) => {
+    const allUsers = storage.getAllUsers();
+    const allGroups = [];
+    for (const user of allUsers) {
+      const groups = storage.getGroups(user.id);
+      for (const g of groups) {
+        const sessions = storage.getSessionsByGroup(g.id);
+        const members = storage.getMembersByGroup(g.id);
+        allGroups.push({
+          ...g,
+          ownerName: user.name,
+          ownerEmail: user.email,
+          memberCount: members.length,
+          sessionCount: sessions.length,
+        });
+      }
+    }
+    // Sort by most recent
+    allGroups.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    res.json(allGroups);
+  });
+
+  // ── First-time admin setup: make a user admin via ADMIN_SECRET env var ────────
+  app.post("/api/admin/setup", (req, res) => {
+    const { email, secret } = req.body;
+    const adminSecret = process.env.ADMIN_SECRET;
+    if (!adminSecret) return res.status(503).json({ error: "Admin setup not configured" });
+    if (secret !== adminSecret) return res.status(403).json({ error: "Invalid secret" });
+    const user = storage.getUserByEmail(email);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    storage.setUserAdmin(user.id, true);
+    res.json({ success: true, message: `${user.name} is now an admin` });
   });
 
   // ── Groups (protected) ───────────────────────────────────────────────────────

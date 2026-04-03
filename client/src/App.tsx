@@ -12,7 +12,24 @@ import SessionDetailPage from "@/pages/SessionDetailPage";
 import BalancesPage from "@/pages/BalancesPage";
 import ReportPage from "@/pages/ReportPage";
 import NotFound from "@/pages/not-found";
+import AdminPage from "@/pages/AdminPage";
 import { Skeleton } from "@/components/ui/skeleton";
+
+// Guard: only admins can access /admin
+function AdminGuard() {
+  const { user } = useAuth();
+  if (!user?.isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-center px-4">
+        <div>
+          <p className="text-2xl font-bold mb-2">Access Denied</p>
+          <p className="text-muted-foreground text-sm">You need admin privileges to view this page.</p>
+        </div>
+      </div>
+    );
+  }
+  return <AdminPage />;
+}
 
 function AppRoutes() {
   const { user, isLoading } = useAuth();
@@ -44,6 +61,7 @@ function AppRoutes() {
         <Route path="/groups/:groupId/sessions/:sessionId" component={SessionDetailPage} />
         <Route path="/groups/:groupId/balances" component={BalancesPage} />
         <Route path="/groups/:groupId/report" component={ReportPage} />
+        <Route path="/admin" component={AdminGuard} />
         <Route component={NotFound} />
       </Switch>
     </Router>

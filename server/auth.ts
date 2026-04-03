@@ -8,6 +8,7 @@ export interface AuthPayload {
   userId: number;
   email: string;
   name: string;
+  isAdmin?: boolean;
 }
 
 /** Sign a JWT for a logged-in user */
@@ -42,4 +43,13 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
 /** Helper to get the authenticated user from a request */
 export function getUser(req: Request): AuthPayload {
   return (req as any).user as AuthPayload;
+}
+
+/** Middleware — requires isAdmin flag in the JWT */
+export function adminMiddleware(req: Request, res: Response, next: NextFunction) {
+  const user = (req as any).user as AuthPayload;
+  if (!user?.isAdmin) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
 }

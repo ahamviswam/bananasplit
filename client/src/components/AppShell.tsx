@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Sun, Moon, ChevronLeft, LogOut } from "lucide-react";
+import { Sun, Moon, ChevronLeft, LogOut, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -119,6 +119,13 @@ export function AppShell({ title, backHref, actions, children }: AppShellProps) 
                     <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                   </div>
                   <DropdownMenuSeparator />
+                  {user.isAdmin && (
+                    <Link href="/admin">
+                      <DropdownMenuItem className="cursor-pointer" data-testid="btn-admin-link">
+                        <Shield className="w-4 h-4 mr-2 text-primary" /> Admin Panel
+                      </DropdownMenuItem>
+                    </Link>
+                  )}
                   <DropdownMenuItem
                     className="text-destructive cursor-pointer"
                     onClick={logout}

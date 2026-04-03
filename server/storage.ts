@@ -20,15 +20,16 @@ const migrations = [
   "ALTER TABLE sessions ADD COLUMN court_fee_paid_by_member_id INTEGER",
   "ALTER TABLE sessions ADD COLUMN court_fee_co_payer_id INTEGER",
   "ALTER TABLE sessions ADD COLUMN num_courts INTEGER NOT NULL DEFAULT 1",
-  // Auth migrations
   `CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     password_hash TEXT NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   )`,
   "ALTER TABLE groups ADD COLUMN owner_id INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0",
 ];
 for (const m of migrations) {
   try { sqlite.exec(m); } catch { /* already exists — safe to ignore */ }
@@ -92,9 +93,12 @@ sqlite.exec(`
 
 export interface IStorage {
   // Users
+  getAllUsers(): User[];
   getUserByEmail(email: string): User | undefined;
   getUserById(id: number): User | undefined;
   createUser(data: InsertUser): User;
+  setUserAdmin(id: number, isAdmin: boolean): void;
+  deleteUser(id: number): void;
 
   // Groups
   getGroups(ownerId: number): Group[];
@@ -131,6 +135,10 @@ export interface IStorage {
 
 export class Storage implements IStorage {
   // ── Users ────────────────────────────────────────────────────────────────────
+  getAllUsers(): User[] {
+    return db.select().from(users).all();
+  }
+
   getUserByEmail(email: string): User | undefined {
     return db.select().from(users).where(eq(users.email, email.toLowerCase())).get();
   }
@@ -141,6 +149,14 @@ export class Storage implements IStorage {
 
   createUser(data: InsertUser): User {
     return db.insert(users).values(data).returning().get();
+  }
+
+  setUserAdmin(id: number, isAdmin: boolean): void {
+    db.update(users).set({ isAdmin }).where(eq(users.id, id)).run();
+  }
+
+  deleteUser(id: number): void {
+    db.delete(users).where(eq(users.id, id)).run();
   }
 
   // ── Groups ───────────────────────────────────────────────────────────────────
