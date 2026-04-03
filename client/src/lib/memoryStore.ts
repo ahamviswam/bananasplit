@@ -234,6 +234,7 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
       courtFee: Number(body.courtFee) || 0,
       courtFeePaidByMemberId: body.courtFeePaidByMemberId ? Number(body.courtFeePaidByMemberId) : null,
       courtFeeCoPayerId: body.courtFeeCoPayerId ? Number(body.courtFeeCoPayerId) : null,
+      payerIsNonPlaying: Boolean(body.payerIsNonPlaying) ?? false,
       numCourts: Number(body.numCourts) || 1,
       notes: body.notes ?? null,
       splitMethod: body.splitMethod ?? "equal",
@@ -263,9 +264,10 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
         }
       }
 
-      if (splitData.length > 0 && participantIds.length > 0) {
+      if (splitData.length > 0) {
         const primaryPayer = s.courtFeePaidByMemberId ?? participantIds[0];
         const coPayer = s.courtFeeCoPayerId;
+        const payerIsNonPlaying = s.payerIsNonPlaying ?? false;
 
         const addExpense = (desc: string, amount: number, payer: number, split: { memberId: number; amount: number }[]) => {
           const e: Expense = {
@@ -290,7 +292,8 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
           addExpense(`Court fee (shared) — ${s.name}`, half, primaryPayer, halfSplit);
           addExpense(`Court fee (shared) — ${s.name}`, half2, coPayer, halfSplit);
         } else {
-          addExpense(`Court fee — ${s.name}`, s.courtFee, primaryPayer, splitData);
+          const desc = payerIsNonPlaying ? `Court fee (sponsored by non-player) — ${s.name}` : `Court fee — ${s.name}`;
+          addExpense(desc, s.courtFee, primaryPayer, splitData);
         }
       }
     }

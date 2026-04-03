@@ -19,6 +19,7 @@ const db = drizzle(sqlite);
 const migrations = [
   "ALTER TABLE sessions ADD COLUMN court_fee_paid_by_member_id INTEGER",
   "ALTER TABLE sessions ADD COLUMN court_fee_co_payer_id INTEGER",
+  "ALTER TABLE sessions ADD COLUMN payer_is_non_playing INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE sessions ADD COLUMN num_courts INTEGER NOT NULL DEFAULT 1",
   `CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,6 +61,7 @@ sqlite.exec(`
     court_fee REAL NOT NULL DEFAULT 0,
     court_fee_paid_by_member_id INTEGER,
     court_fee_co_payer_id INTEGER,
+    payer_is_non_playing INTEGER NOT NULL DEFAULT 0,
     num_courts INTEGER NOT NULL DEFAULT 1,
     notes TEXT,
     split_method TEXT NOT NULL DEFAULT 'equal',

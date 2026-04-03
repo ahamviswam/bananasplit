@@ -92,6 +92,7 @@ function NewSessionDialog({
   const [courtFeePaidBy, setCourtFeePaidBy] = useState<string>("");
   const [courtFeeCoPayerId, setCourtFeeCoPayerId] = useState<string>("");
   const [splitCourtFee, setSplitCourtFee] = useState(false);
+  const [payerIsNonPlaying, setPayerIsNonPlaying] = useState(false);
   const [numCourts, setNumCourts] = useState("1");
   const [splitMethod, setSplitMethod] = useState<"equal" | "playtime">("equal");
   const [participantIds, setParticipantIds] = useState<number[]>([]);
@@ -113,7 +114,7 @@ function NewSessionDialog({
 
   const resetForm = () => {
     setName(""); setDate(format(new Date(), "yyyy-MM-dd")); setCourtFee("");
-    setCourtFeePaidBy(""); setCourtFeeCoPayerId(""); setSplitCourtFee(false); setNumCourts("1");
+    setCourtFeePaidBy(""); setCourtFeeCoPayerId(""); setSplitCourtFee(false); setPayerIsNonPlaying(false); setNumCourts("1");
     setSplitMethod("equal"); setParticipantIds([]); setPlaytimeMap({});
   };
 
@@ -135,6 +136,7 @@ function NewSessionDialog({
       courtFee: parseFloat(courtFee) || 0,
       courtFeePaidByMemberId: courtFeePaidBy ? Number(courtFeePaidBy) : null,
       courtFeeCoPayerId: (splitCourtFee && courtFeeCoPayerId) ? Number(courtFeeCoPayerId) : null,
+      payerIsNonPlaying: payerIsNonPlaying,
       numCourts: parseInt(numCourts) || 1,
       splitMethod,
       participantIds: JSON.stringify(participantIds),
@@ -201,18 +203,32 @@ function NewSessionDialog({
                 />
               </div>
 
-              {/* Primary payer */}
+              {/* Non-playing payer toggle */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Payer is not playing today</p>
+                  <p className="text-xs text-muted-foreground">Select any group member — they pay but owe $0</p>
+                </div>
+                <Switch
+                  checked={payerIsNonPlaying}
+                  onCheckedChange={v => { setPayerIsNonPlaying(v); setCourtFeePaidBy(""); }}
+                  data-testid="switch-payer-non-playing"
+                />
+              </div>
+
+              {/* Primary payer — show ALL members when non-playing, only participants otherwise */}
               <div className="space-y-1">
                 <Label>{splitCourtFee ? "First payer" : "Paid by"}</Label>
                 <Select value={courtFeePaidBy} onValueChange={setCourtFeePaidBy}>
                   <SelectTrigger data-testid="select-court-fee-paid-by">
-                    <SelectValue placeholder="Select who paid" />
+                    <SelectValue placeholder={payerIsNonPlaying ? "Any group member" : "Select who paid"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {participantIds.map(id => {
-                      const m = members.find(x => x.id === id);
-                      return m ? <SelectItem key={id} value={String(id)}>{m.name}</SelectItem> : null;
-                    })}
+                    {(payerIsNonPlaying ? members : members.filter(m => participantIds.includes(m.id))).map(m => (
+                      <SelectItem key={m.id} value={String(m.id)}>
+                        {m.name}{payerIsNonPlaying && !participantIds.includes(m.id) ? " (not playing)" : ""}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

@@ -527,13 +527,14 @@ export default function SessionDetailPage() {
         const payer = session.courtFeePaidByMemberId ? memberMap[session.courtFeePaidByMemberId] : null;
         const coPayer = session.courtFeeCoPayerId ? memberMap[session.courtFeeCoPayerId] : null;
         if (!payer) return null;
+        const isNonPlaying = session.payerIsNonPlaying;
         return (
           <div className="flex items-center gap-2 mb-4 px-3 py-2.5 rounded-lg bg-accent/10 border border-accent/20 text-sm flex-wrap">
             {coPayer ? (
               <>
                 <Avatar className="w-6 h-6"><AvatarFallback style={{ backgroundColor: payer.color, fontSize: "9px" }}>{getInitials(payer.name)}</AvatarFallback></Avatar>
                 <span className="font-semibold">{payer.name}</span>
-                <span className="text-muted-foreground">&</span>
+                <span className="text-muted-foreground">&amp;</span>
                 <Avatar className="w-6 h-6"><AvatarFallback style={{ backgroundColor: coPayer.color, fontSize: "9px" }}>{getInitials(coPayer.name)}</AvatarFallback></Avatar>
                 <span className="font-semibold">{coPayer.name}</span>
                 <span>each paid <span className="font-semibold text-primary">${(session.courtFee / 2).toFixed(2)}</span> <span className="text-muted-foreground">(total ${session.courtFee.toFixed(2)})</span></span>
@@ -541,7 +542,14 @@ export default function SessionDetailPage() {
             ) : (
               <>
                 <Avatar className="w-6 h-6"><AvatarFallback style={{ backgroundColor: payer.color, fontSize: "9px" }}>{getInitials(payer.name)}</AvatarFallback></Avatar>
-                <span><span className="font-semibold">{payer.name}</span> paid the court fee of <span className="font-semibold text-primary">${session.courtFee.toFixed(2)}</span></span>
+                <span>
+                  <span className="font-semibold">{payer.name}</span>
+                  {isNonPlaying ? " sponsored the court fee of " : " paid the court fee of "}
+                  <span className="font-semibold text-primary">${session.courtFee.toFixed(2)}</span>
+                </span>
+                {isNonPlaying && (
+                  <Badge variant="secondary" className="text-xs ml-1">Not playing · owes $0</Badge>
+                )}
               </>
             )}
           </div>
