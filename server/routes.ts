@@ -199,6 +199,20 @@ export function registerRoutes(httpServer: Server, app: Express) {
     res.json(result);
   });
 
+  // ── Admin: reset a user's password via ADMIN_SECRET ─────────────────────────
+  app.post("/api/admin/reset-password", async (req, res) => {
+    const { email, newPassword, secret } = req.body;
+    const adminSecret = process.env.ADMIN_SECRET;
+    if (!adminSecret) return res.status(503).json({ error: "Not configured" });
+    if (secret !== adminSecret) return res.status(403).json({ error: "Invalid secret" });
+    const user = storage.getUserByEmail(email);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (!newPassword || newPassword.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    storage.updatePassword(user.id, passwordHash);
+    res.json({ success: true, message: `Password reset for ${user.name}` });
+  });
+
   // ── First-time admin setup: make a user admin via ADMIN_SECRET env var ────────
   app.post("/api/admin/setup", (req, res) => {
     const { email, secret } = req.body;

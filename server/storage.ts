@@ -99,6 +99,7 @@ export interface IStorage {
   createUser(data: InsertUser): User;
   setUserAdmin(id: number, isAdmin: boolean): void;
   deleteUser(id: number): void;
+  updatePassword(id: number, passwordHash: string): void;
 
   // Groups
   getAllGroups(): Group[];
@@ -158,6 +159,10 @@ export class Storage implements IStorage {
 
   deleteUser(id: number): void {
     db.delete(users).where(eq(users.id, id)).run();
+  }
+
+  updatePassword(id: number, passwordHash: string): void {
+    db.update(users).set({ passwordHash }).where(eq(users.id, id)).run();
   }
 
   // ── Groups ───────────────────────────────────────────────────────────────────
