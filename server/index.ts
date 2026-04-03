@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import cors from "cors";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
@@ -11,6 +12,19 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+// Allow requests from GitHub Pages and any other origin
+app.use(cors({
+  origin: [
+    "https://ahamviswam.github.io",
+    "http://localhost:5000",
+    "http://localhost:3000",
+    /\.github\.io$/,   // any github pages subdomain
+  ],
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
 
 app.use(
   express.json({
