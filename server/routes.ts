@@ -122,23 +122,19 @@ export function registerRoutes(httpServer: Server, app: Express) {
   // ── Admin routes (authMiddleware + adminMiddleware) ──────────────────────────
   app.get("/api/admin/stats", authMiddleware, adminMiddleware, (req, res) => {
     const allUsers = storage.getAllUsers();
-    const allGroups = storage.getGroups ? null : null; // handled below
-    // Compute stats across all groups
-    let totalGroups = 0, totalSessions = 0, totalExpenses = 0, totalRevenue = 0;
-    for (const user of allUsers) {
-      const userGroups = storage.getGroups(user.id);
-      totalGroups += userGroups.length;
-      for (const group of userGroups) {
-        const sessions = storage.getSessionsByGroup(group.id);
-        totalSessions += sessions.length;
-        const expenses = storage.getExpensesByGroup(group.id);
-        totalExpenses += expenses.length;
-        totalRevenue += expenses.reduce((sum, e) => sum + e.amount, 0);
-      }
+    // Use getAllGroups to include legacy groups (owner_id = 0)
+    const allGroups = storage.getAllGroups();
+    let totalSessions = 0, totalExpenses = 0, totalRevenue = 0;
+    for (const group of allGroups) {
+      const sessions = storage.getSessionsByGroup(group.id);
+      totalSessions += sessions.length;
+      const expenses = storage.getExpensesByGroup(group.id);
+      totalExpenses += expenses.length;
+      totalRevenue += expenses.reduce((sum, e) => sum + e.amount, 0);
     }
     res.json({
       totalUsers: allUsers.length,
-      totalGroups,
+      totalGroups: allGroups.length,
       totalSessions,
       totalExpenses,
       totalRevenue: Math.round(totalRevenue * 100) / 100,
@@ -184,24 +180,23 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   app.get("/api/admin/groups", authMiddleware, adminMiddleware, (req, res) => {
     const allUsers = storage.getAllUsers();
-    const allGroups = [];
-    for (const user of allUsers) {
-      const groups = storage.getGroups(user.id);
-      for (const g of groups) {
-        const sessions = storage.getSessionsByGroup(g.id);
-        const members = storage.getMembersByGroup(g.id);
-        allGroups.push({
-          ...g,
-          ownerName: user.name,
-          ownerEmail: user.email,
-          memberCount: members.length,
-          sessionCount: sessions.length,
-        });
-      }
-    }
-    // Sort by most recent
-    allGroups.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    res.json(allGroups);
+    const userMap = Object.fromEntries(allUsers.map(u => [u.id, u]));
+    // Get ALL groups including legacy (owner_id = 0)
+    const allGroups = storage.getAllGroups();
+    const result = allGroups.map(g => {
+      const sessions = storage.getSessionsByGroup(g.id);
+      const members = storage.getMembersByGroup(g.id);
+      const owner = userMap[g.ownerId];
+      return {
+        ...g,
+        ownerName: owner?.name ?? "Legacy (no owner)",
+        ownerEmail: owner?.email ?? "",
+        memberCount: members.length,
+        sessionCount: sessions.length,
+      };
+    });
+    result.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    res.json(result);
   });
 
   // ── First-time admin setup: make a user admin via ADMIN_SECRET env var ────────

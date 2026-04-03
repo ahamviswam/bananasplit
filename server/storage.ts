@@ -101,6 +101,7 @@ export interface IStorage {
   deleteUser(id: number): void;
 
   // Groups
+  getAllGroups(): Group[];
   getGroups(ownerId: number): Group[];
   getGroup(id: number): Group | undefined;
   createGroup(data: InsertGroup): Group;
@@ -160,6 +161,10 @@ export class Storage implements IStorage {
   }
 
   // ── Groups ───────────────────────────────────────────────────────────────────
+  getAllGroups(): Group[] {
+    return db.select().from(groups).all();
+  }
+
   getGroups(ownerId: number): Group[] {
     return db.select().from(groups).where(eq(groups.ownerId, ownerId)).all();
   }

@@ -95,6 +95,7 @@ export default function AdminPage() {
   const { data: users = [], isLoading: loadingUsers, refetch: refetchUsers } = useQuery<AdminUser[]>({
     queryKey: ["/api/admin/users"],
     queryFn: () => apiFetch("/api/admin/users"),
+    retry: 2,
   });
 
   const { data: groups = [], isLoading: loadingGroups } = useQuery<AdminGroup[]>({
@@ -154,6 +155,9 @@ export default function AdminPage() {
         <span className="text-sm font-medium text-primary">Admin Dashboard</span>
         <span className="text-sm text-muted-foreground ml-auto">
           Logged in as <span className="font-medium">{user?.name}</span>
+          {!user?.isAdmin && (
+            <span className="ml-2 text-destructive text-xs">(Sign out &amp; back in to refresh admin access)</span>
+          )}
         </span>
       </div>
 
