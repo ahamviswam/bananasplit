@@ -92,7 +92,8 @@ function NewSessionDialog({
   const [courtFeePaidBy, setCourtFeePaidBy] = useState<string>("");
   const [courtFeeCoPayerId, setCourtFeeCoPayerId] = useState<string>("");
   const [splitCourtFee, setSplitCourtFee] = useState(false);
-  const [payerIsNonPlaying, setPayerIsNonPlaying] = useState(false);
+  const [payer1IsPlaying, setPayer1IsPlaying] = useState(true);
+  const [payer2IsPlaying, setPayer2IsPlaying] = useState(true);
   const [numCourts, setNumCourts] = useState("1");
   const [splitMethod, setSplitMethod] = useState<"equal" | "playtime">("equal");
   const [participantIds, setParticipantIds] = useState<number[]>([]);
@@ -114,7 +115,7 @@ function NewSessionDialog({
 
   const resetForm = () => {
     setName(""); setDate(format(new Date(), "yyyy-MM-dd")); setCourtFee("");
-    setCourtFeePaidBy(""); setCourtFeeCoPayerId(""); setSplitCourtFee(false); setPayerIsNonPlaying(false); setNumCourts("1");
+    setCourtFeePaidBy(""); setCourtFeeCoPayerId(""); setSplitCourtFee(false); setPayer1IsPlaying(true); setPayer2IsPlaying(true); setNumCourts("1");
     setSplitMethod("equal"); setParticipantIds([]); setPlaytimeMap({});
   };
 
@@ -136,7 +137,8 @@ function NewSessionDialog({
       courtFee: parseFloat(courtFee) || 0,
       courtFeePaidByMemberId: courtFeePaidBy ? Number(courtFeePaidBy) : null,
       courtFeeCoPayerId: (splitCourtFee && courtFeeCoPayerId) ? Number(courtFeeCoPayerId) : null,
-      payerIsNonPlaying: payerIsNonPlaying,
+      payer1IsPlaying: payer1IsPlaying,
+      payer2IsPlaying: payer2IsPlaying,
       numCourts: parseInt(numCourts) || 1,
       splitMethod,
       participantIds: JSON.stringify(participantIds),
@@ -190,7 +192,7 @@ function NewSessionDialog({
             <div className="space-y-3 rounded-lg border p-3 bg-muted/30">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Court Fee Payment</p>
 
-              {/* Toggle: split between 2 people */}
+              {/* Split between 2 toggle */}
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium">Split fee between 2 people</p>
@@ -198,58 +200,72 @@ function NewSessionDialog({
                 </div>
                 <Switch
                   checked={splitCourtFee}
-                  onCheckedChange={v => { setSplitCourtFee(v); if (!v) setCourtFeeCoPayerId(""); }}
+                  onCheckedChange={v => { setSplitCourtFee(v); if (!v) { setCourtFeeCoPayerId(""); setPayer2IsPlaying(true); } }}
                   data-testid="switch-split-court-fee"
                 />
               </div>
 
-              {/* Non-playing payer toggle */}
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">Payer is not playing today</p>
-                  <p className="text-xs text-muted-foreground">Select any group member — they pay but owe $0</p>
-                </div>
-                <Switch
-                  checked={payerIsNonPlaying}
-                  onCheckedChange={v => { setPayerIsNonPlaying(v); setCourtFeePaidBy(""); }}
-                  data-testid="switch-payer-non-playing"
-                />
-              </div>
-
-              {/* Primary payer — show ALL members when non-playing, only participants otherwise */}
+              {/* Payer 1 row — pick from ALL members + playing checkbox */}
               <div className="space-y-1">
-                <Label>{splitCourtFee ? "First payer" : "Paid by"}</Label>
-                <Select value={courtFeePaidBy} onValueChange={setCourtFeePaidBy}>
-                  <SelectTrigger data-testid="select-court-fee-paid-by">
-                    <SelectValue placeholder={payerIsNonPlaying ? "Any group member" : "Select who paid"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(payerIsNonPlaying ? members : members.filter(m => participantIds.includes(m.id))).map(m => (
-                      <SelectItem key={m.id} value={String(m.id)}>
-                        {m.name}{payerIsNonPlaying && !participantIds.includes(m.id) ? " (not playing)" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Co-payer (only when split is on) */}
-              {splitCourtFee && (
-                <div className="space-y-1">
-                  <Label>Second payer</Label>
-                  <Select value={courtFeeCoPayerId} onValueChange={setCourtFeeCoPayerId}>
-                    <SelectTrigger data-testid="select-court-fee-co-payer">
-                      <SelectValue placeholder="Select second payer" />
+                <Label>{splitCourtFee ? "Payer 1" : "Paid by"}</Label>
+                <div className="flex items-center gap-2">
+                  <Select value={courtFeePaidBy} onValueChange={setCourtFeePaidBy}>
+                    <SelectTrigger className="flex-1" data-testid="select-court-fee-paid-by">
+                      <SelectValue placeholder="Select who paid" />
                     </SelectTrigger>
                     <SelectContent>
-                      {participantIds
-                        .filter(id => String(id) !== courtFeePaidBy)
-                        .map(id => {
-                          const m = members.find(x => x.id === id);
-                          return m ? <SelectItem key={id} value={String(id)}>{m.name}</SelectItem> : null;
-                        })}
+                      {members.map(m => (
+                        <SelectItem key={m.id} value={String(m.id)}>
+                          {m.name}{!participantIds.includes(m.id) ? " (not playing)" : ""}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap cursor-pointer select-none" data-testid="label-payer1-playing">
+                    <Checkbox
+                      checked={payer1IsPlaying}
+                      onCheckedChange={v => setPayer1IsPlaying(Boolean(v))}
+                      data-testid="checkbox-payer1-playing"
+                    />
+                    Playing
+                  </label>
+                </div>
+                {courtFeePaidBy && !payer1IsPlaying && (
+                  <p className="text-xs text-primary">Payer 1 will not be billed — players split 100%</p>
+                )}
+              </div>
+
+              {/* Payer 2 row — only shown when split is on */}
+              {splitCourtFee && (
+                <div className="space-y-1">
+                  <Label>Payer 2</Label>
+                  <div className="flex items-center gap-2">
+                    <Select value={courtFeeCoPayerId} onValueChange={setCourtFeeCoPayerId}>
+                      <SelectTrigger className="flex-1" data-testid="select-court-fee-co-payer">
+                        <SelectValue placeholder="Select second payer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {members
+                          .filter(m => String(m.id) !== courtFeePaidBy)
+                          .map(m => (
+                            <SelectItem key={m.id} value={String(m.id)}>
+                              {m.name}{!participantIds.includes(m.id) ? " (not playing)" : ""}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap cursor-pointer select-none" data-testid="label-payer2-playing">
+                      <Checkbox
+                        checked={payer2IsPlaying}
+                        onCheckedChange={v => setPayer2IsPlaying(Boolean(v))}
+                        data-testid="checkbox-payer2-playing"
+                      />
+                      Playing
+                    </label>
+                  </div>
+                  {courtFeeCoPayerId && !payer2IsPlaying && (
+                    <p className="text-xs text-primary">Payer 2 will not be billed — players split 100%</p>
+                  )}
                 </div>
               )}
 

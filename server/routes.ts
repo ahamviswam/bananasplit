@@ -308,41 +308,52 @@ export function registerRoutes(httpServer: Server, app: Express) {
       const playtimeData: { memberId: number; minutes: number }[] = JSON.parse(session.playtimeData || "[]");
       const primaryPayer = session.courtFeePaidByMemberId ?? participantIds[0];
       const coPayer = session.courtFeeCoPayerId;
-      const payerIsNonPlaying = session.payerIsNonPlaying ?? false;
+      const payer1IsPlaying = session.payer1IsPlaying !== false; // default true
+      const payer2IsPlaying = session.payer2IsPlaying !== false; // default true
 
-      // When payer is non-playing: split equally among ONLY the participants (payer owes $0)
-      // When payer is playing: split normally among participants (payer's balance nets out via expense credit)
-      const owingIds = participantIds; // always split among players
-      let splitData: { memberId: number; amount: number }[] = [];
+      // Determine who owes money:
+      // - Players always owe their share
+      // - A non-playing payer is excluded from the "owes" side entirely
+      // - A playing payer owes their share (balance calc handles the net)
+      const owingIds = participantIds; // players always share the cost
 
-      if (session.splitMethod === "equal" && owingIds.length > 0) {
-        const share = session.courtFee / owingIds.length;
-        splitData = owingIds.map(id => ({ memberId: id, amount: Math.round(share * 100) / 100 }));
-      } else if (session.splitMethod === "playtime" && playtimeData.length > 0) {
-        const relevantPlaytime = playtimeData.filter(p => owingIds.includes(p.memberId));
-        const totalMinutes = relevantPlaytime.reduce((s, p) => s + p.minutes, 0);
-        if (totalMinutes > 0) {
-          splitData = relevantPlaytime.map(p => ({
-            memberId: p.memberId,
-            amount: Math.round((p.minutes / totalMinutes) * session.courtFee * 100) / 100,
-          }));
+      const buildSplit = (ids: number[], total: number) => {
+        if (session.splitMethod === "equal" && ids.length > 0) {
+          const share = total / ids.length;
+          return ids.map(id => ({ memberId: id, amount: Math.round(share * 100) / 100 }));
         }
-      }
-
-      if (splitData.length > 0) {
-        const desc = payerIsNonPlaying
-          ? `Court fee (sponsored by non-player) — ${session.name}`
-          : `Court fee — ${session.name}`;
-
-        if (coPayer && coPayer !== primaryPayer) {
-          const half = Math.round((session.courtFee / 2) * 100) / 100;
-          const half2 = Math.round((session.courtFee - half) * 100) / 100;
-          const halfSplit = splitData.map(s => ({ memberId: s.memberId, amount: Math.round((s.amount / 2) * 100) / 100 }));
-          storage.createExpense({ sessionId: session.id, groupId: session.groupId, description: `Court fee (shared) — ${session.name}`, amount: half, paidByMemberId: primaryPayer, splitMethod: session.splitMethod, splitData: JSON.stringify(halfSplit), createdAt: new Date().toISOString() });
-          storage.createExpense({ sessionId: session.id, groupId: session.groupId, description: `Court fee (shared) — ${session.name}`, amount: half2, paidByMemberId: coPayer, splitMethod: session.splitMethod, splitData: JSON.stringify(halfSplit), createdAt: new Date().toISOString() });
-        } else {
-          storage.createExpense({ sessionId: session.id, groupId: session.groupId, description: desc, amount: session.courtFee, paidByMemberId: primaryPayer, splitMethod: session.splitMethod, splitData: JSON.stringify(splitData), createdAt: new Date().toISOString() });
+        if (session.splitMethod === "playtime" && playtimeData.length > 0) {
+          const relevant = playtimeData.filter(p => ids.includes(p.memberId));
+          const totalMins = relevant.reduce((s, p) => s + p.minutes, 0);
+          if (totalMins > 0) {
+            return relevant.map(p => ({
+              memberId: p.memberId,
+              amount: Math.round((p.minutes / totalMins) * total * 100) / 100,
+            }));
+          }
         }
+        return [];
+      };
+
+      const addExpense = (desc: string, amount: number, payer: number, split: { memberId: number; amount: number }[]) => {
+        if (split.length === 0) return;
+        storage.createExpense({ sessionId: session.id, groupId: session.groupId, description: desc, amount, paidByMemberId: payer, splitMethod: session.splitMethod, splitData: JSON.stringify(split), createdAt: new Date().toISOString() });
+      };
+
+      if (coPayer && coPayer !== primaryPayer) {
+        // Two payers — each pays half
+        const half = Math.round((session.courtFee / 2) * 100) / 100;
+        const half2 = Math.round((session.courtFee - half) * 100) / 100;
+        const halfSplit = buildSplit(owingIds, half);
+        const half2Split = buildSplit(owingIds, half2);
+        const p1Label = payer1IsPlaying ? "" : " (non-player)";
+        const p2Label = payer2IsPlaying ? "" : " (non-player)";
+        addExpense(`Court fee — ${session.name}${p1Label}`, half, primaryPayer, halfSplit);
+        addExpense(`Court fee — ${session.name}${p2Label}`, half2, coPayer, half2Split);
+      } else {
+        // Single payer
+        const label = payer1IsPlaying ? "" : " (sponsored by non-player)";
+        addExpense(`Court fee${label} — ${session.name}`, session.courtFee, primaryPayer, buildSplit(owingIds, session.courtFee));
       }
     }
 

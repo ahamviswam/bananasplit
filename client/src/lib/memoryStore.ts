@@ -234,7 +234,8 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
       courtFee: Number(body.courtFee) || 0,
       courtFeePaidByMemberId: body.courtFeePaidByMemberId ? Number(body.courtFeePaidByMemberId) : null,
       courtFeeCoPayerId: body.courtFeeCoPayerId ? Number(body.courtFeeCoPayerId) : null,
-      payerIsNonPlaying: Boolean(body.payerIsNonPlaying) ?? false,
+      payer1IsPlaying: body.payer1IsPlaying !== false,
+      payer2IsPlaying: body.payer2IsPlaying !== false,
       numCourts: Number(body.numCourts) || 1,
       notes: body.notes ?? null,
       splitMethod: body.splitMethod ?? "equal",
@@ -264,23 +265,29 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
         }
       }
 
-      if (splitData.length > 0) {
+      if (participantIds.length > 0) {
         const primaryPayer = s.courtFeePaidByMemberId ?? participantIds[0];
         const coPayer = s.courtFeeCoPayerId;
-        const payerIsNonPlaying = s.payerIsNonPlaying ?? false;
+        const payer1IsPlaying = s.payer1IsPlaying !== false;
+        const payer2IsPlaying = s.payer2IsPlaying !== false;
+
+        const buildSplit = (ids: number[], total: number) => {
+          if (s.splitMethod === "equal" && ids.length > 0) {
+            const share = total / ids.length;
+            return ids.map(id => ({ memberId: id, amount: Math.round(share * 100) / 100 }));
+          }
+          const playtime: { memberId: number; minutes: number }[] = JSON.parse(s.playtimeData || "[]");
+          if (s.splitMethod === "playtime" && playtime.length > 0) {
+            const relevant = playtime.filter(p => ids.includes(p.memberId));
+            const totalMins = relevant.reduce((sum, p) => sum + p.minutes, 0);
+            if (totalMins > 0) return relevant.map(p => ({ memberId: p.memberId, amount: Math.round((p.minutes / totalMins) * total * 100) / 100 }));
+          }
+          return [];
+        };
 
         const addExpense = (desc: string, amount: number, payer: number, split: { memberId: number; amount: number }[]) => {
-          const e: Expense = {
-            id: nextId(),
-            sessionId: s.id,
-            groupId: gid,
-            description: desc,
-            amount,
-            paidByMemberId: payer,
-            splitMethod: s.splitMethod,
-            splitData: JSON.stringify(split),
-            createdAt: now,
-          };
+          if (split.length === 0) return;
+          const e: Expense = { id: nextId(), sessionId: s.id, groupId: gid, description: desc, amount, paidByMemberId: payer, splitMethod: s.splitMethod, splitData: JSON.stringify(split), createdAt: now };
           expenses.push(e);
           putRecord("expenses", e);
         };
@@ -288,12 +295,13 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
         if (coPayer && coPayer !== primaryPayer) {
           const half = Math.round((s.courtFee / 2) * 100) / 100;
           const half2 = Math.round((s.courtFee - half) * 100) / 100;
-          const halfSplit = splitData.map(x => ({ memberId: x.memberId, amount: Math.round((x.amount / 2) * 100) / 100 }));
-          addExpense(`Court fee (shared) — ${s.name}`, half, primaryPayer, halfSplit);
-          addExpense(`Court fee (shared) — ${s.name}`, half2, coPayer, halfSplit);
+          const p1Label = payer1IsPlaying ? "" : " (non-player)";
+          const p2Label = payer2IsPlaying ? "" : " (non-player)";
+          addExpense(`Court fee — ${s.name}${p1Label}`, half, primaryPayer, buildSplit(participantIds, half));
+          addExpense(`Court fee — ${s.name}${p2Label}`, half2, coPayer, buildSplit(participantIds, half2));
         } else {
-          const desc = payerIsNonPlaying ? `Court fee (sponsored by non-player) — ${s.name}` : `Court fee — ${s.name}`;
-          addExpense(desc, s.courtFee, primaryPayer, splitData);
+          const label = payer1IsPlaying ? "" : " (sponsored by non-player)";
+          addExpense(`Court fee${label} — ${s.name}`, s.courtFee, primaryPayer, buildSplit(participantIds, s.courtFee));
         }
       }
     }

@@ -49,8 +49,9 @@ export const sessions = sqliteTable("sessions", {
   date: text("date").notNull(), // ISO date string
   courtFee: real("court_fee").notNull().default(0),
   courtFeePaidByMemberId: integer("court_fee_paid_by_member_id"),
-  courtFeeCoPayerId: integer("court_fee_co_payer_id"), // second person who splits the court fee
-  payerIsNonPlaying: integer("payer_is_non_playing", { mode: "boolean" }).notNull().default(false), // payer not in participants — excluded from owing
+  courtFeeCoPayerId: integer("court_fee_co_payer_id"),
+  payer1IsPlaying: integer("payer1_is_playing", { mode: "boolean" }).notNull().default(true),  // is payer 1 also a participant?
+  payer2IsPlaying: integer("payer2_is_playing", { mode: "boolean" }).notNull().default(true),  // is payer 2 also a participant?
   numCourts: integer("num_courts").notNull().default(1),
   notes: text("notes"),
   splitMethod: text("split_method").notNull().default("equal"), // "equal" | "playtime"
