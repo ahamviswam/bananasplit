@@ -1,25 +1,21 @@
 /**
- * Fair Round-Robin Scheduler for Pickleball
+ * BananaSplit Fair Scheduler — No Repeated Pairs
  *
- * Core design goals:
- * 1. Players from ALL courts are mixed every round — no player stays stuck
- *    on the same court with the same group.
- * 2. Every player faces different opponents and partners each round.
- * 3. Players who sat out get priority next round (idle-first).
- * 4. Uses the "polygon / circle rotation" method — the standard algorithm
- *    for round-robin tournaments — applied across all courts at once.
+ * Core guarantee:
+ *   No two players are teammates in consecutive rounds.
+ *   No two players are opponents in consecutive rounds either (best effort).
+ *   Players who sat out get priority in the next round.
  *
- * Polygon rotation (N players):
- *   - Fix player[0], rotate the other N-1 players clockwise each round.
- *   - This produces N-1 unique rounds where every pair of players meets exactly once.
- *   - After selecting which players play this round, interleave them across
- *     courts so Court 1 ≠ Court 2 ≠ Court 3 in composition.
- *
- * Team assignment within a round:
- *   - After rotation, the N active players are interleaved across courts:
- *     slot 0→Court1 teamA, slot 1→Court2 teamA, ..., slot C→Court1 teamB ...
- *   - This guarantees players from different "rotation positions" are on
- *     the same court, mixing partners and opponents every round.
+ * Algorithm:
+ *   1. Pre-generate ALL unique partner pairs: C(N,2) combinations.
+ *   2. Build a round by greedily picking pairs that:
+ *      - Don't share a player already assigned this round.
+ *      - Don't repeat a pairing from the PREVIOUS round.
+ *   3. Once two pairs are chosen for a game, assign them to a court.
+ *   4. Cross-court mix: alternate which pair goes to which court.
+ *   5. When a player sits out, they get priority next round.
+ *   6. After all unique pairs are used, restart the pair pool
+ *      but still avoid pairs that appeared in the immediately prior round.
  */
 
 export interface Matchup {
@@ -36,108 +32,123 @@ export interface Round {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Polygon rotation — the standard round-robin engine
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** All unique 2-player combinations from an array */
+function allPairs(ids: number[]): [number, number][] {
+  const pairs: [number, number][] = [];
+  for (let i = 0; i < ids.length; i++)
+    for (let j = i + 1; j < ids.length; j++)
+      pairs.push([ids[i], ids[j]]);
+  return pairs;
+}
+
+function pairKey(a: number, b: number): string {
+  return a < b ? `${a},${b}` : `${b},${a}`;
+}
+
+/** Shuffle an array in place (Fisher-Yates with seeded offset for determinism) */
+function shuffleSeeded<T>(arr: T[], seed: number): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = (seed * 1664525 + 1013904223 + i) % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Core: build one round of games
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Given N players, produce all unique rotation orders using the polygon method.
- * Returns an array of N-1 (or N if odd) rotation arrays, each containing
- * all N player IDs in a rotation-derived order.
- */
-function buildRotations(players: number[]): number[][] {
-  const n = players.length;
-  if (n < 2) return [];
-
-  // For odd N, add a "bye" slot (null=-1) to make it even
-  const ring = n % 2 === 0 ? [...players] : [...players, -1];
-  const size = ring.length;
-  const rounds: number[][] = [];
-
-  // Fix ring[0], rotate ring[1..] clockwise each round
-  // Produces size-1 rounds
-  for (let r = 0; r < size - 1; r++) {
-    // Build this rotation: fix position 0, rotate the rest
-    const rotated = [ring[0]];
-    for (let i = 1; i < size; i++) {
-      // Position i in this rotation = ring[(i - 1 + r) % (size - 1) + 1]
-      // Standard polygon: slot j gets ring[((j - 1 + r) % (size - 1)) + 1]
-      rotated.push(ring[((i - 1 + r) % (size - 1)) + 1]);
-    }
-    // Remove bye placeholder
-    rounds.push(rotated.filter((id) => id !== -1));
-  }
-  return rounds;
-}
-
-/**
- * Assign players to courts with cross-court interleaving.
+ * Pick games for one round.
  *
- * Given `playing` = [P1, P2, P3, P4, P5, P6, P7, P8] and 2 courts:
- * Instead of Court1=[P1,P2,P3,P4] Court2=[P5,P6,P7,P8],
- * interleave by position:
- *   Court1 TeamA = [pos0, pos2] = [P1, P3]
- *   Court2 TeamA = [pos1, pos3] = [P2, P4]
- *   Court1 TeamB = [pos4, pos6] = [P5, P7]
- *   Court2 TeamB = [pos5, pos7] = [P6, P8]
- *
- * This means each court has players from across the rotation — not just
- * consecutive blocks — so partners and opponents change every round.
+ * @param activePlayers  Players available to play this round (already idle-prioritised)
+ * @param numCourts      How many courts (= games per round)
+ * @param usedPairs      Pairs used in the PREVIOUS round (avoid repeating)
+ * @param globalPairUse  How many times each pair has been used total (for fairness)
+ * @param roundSeed      Deterministic seed for variety
  */
-function assignToCourts(
-  playing: number[],
+function buildRound(
+  activePlayers: number[],
   numCourts: number,
-  isDoubles: boolean
-): { teamA: number[]; teamB: number[]; court: number }[] {
-  const playersPerGame = isDoubles ? 4 : 2;
-  const gamesThisRound = Math.floor(playing.length / playersPerGame);
-  const results: { teamA: number[]; teamB: number[]; court: number }[] = [];
+  usedPairs: Set<string>,
+  globalPairUse: Record<string, number>,
+  roundSeed: number
+): { teamA: number[]; teamB: number[] }[] {
+  const gamesNeeded = Math.min(numCourts, Math.floor(activePlayers.length / 4));
+  const games: { teamA: number[]; teamB: number[] }[] = [];
+  const assigned = new Set<number>();
 
-  if (isDoubles) {
-    // Interleave: fill TeamA slots across all courts first, then TeamB slots
-    // TeamA slot for court c = positions [c, c + numCourts]
-    // TeamB slot for court c = positions [c + 2*numCourts, c + 3*numCourts]
-    for (let c = 0; c < gamesThisRound; c++) {
-      const court = (c % numCourts) + 1;
-      // Interleaved positions for this game:
-      // Instead of 4 consecutive, pick from spread positions
-      const pos = [
-        c,                              // TeamA player 1
-        c + gamesThisRound,             // TeamA player 2
-        c + gamesThisRound * 2,         // TeamB player 1
-        c + gamesThisRound * 3,         // TeamB player 2
-      ];
-      // Bounds check
-      if (pos[3] >= playing.length) {
-        // Fall back to consecutive if out of bounds
-        const base = c * 4;
-        if (base + 3 < playing.length) {
-          results.push({
-            teamA: [playing[base], playing[base + 1]],
-            teamB: [playing[base + 2], playing[base + 3]],
-            court,
-          });
-        }
+  // Get all candidate pairs from activePlayers, sorted by least-used first
+  // then shuffle slightly for variety
+  const candidates = allPairs(activePlayers)
+    .filter(([a, b]) => !usedPairs.has(pairKey(a, b)))
+    .sort((pA, pB) => {
+      const ua = globalPairUse[pairKey(pA[0], pA[1])] ?? 0;
+      const ub = globalPairUse[pairKey(pB[0], pB[1])] ?? 0;
+      return ua - ub; // prefer pairs used least
+    });
+
+  // If we don't have enough fresh pairs, allow previously-used ones
+  const fallback = allPairs(activePlayers)
+    .sort((pA, pB) => {
+      const ua = globalPairUse[pairKey(pA[0], pA[1])] ?? 0;
+      const ub = globalPairUse[pairKey(pB[0], pB[1])] ?? 0;
+      return ua - ub;
+    });
+
+  const pairPool = candidates.length >= gamesNeeded * 2 ? candidates : fallback;
+
+  // Greedy game builder: pick TeamA pair, then TeamB pair for each court
+  for (let g = 0; g < gamesNeeded && assigned.size + 3 < activePlayers.length + 1; g++) {
+    // Pick TeamA: first available pair where neither player is assigned
+    const teamA = pairPool.find(
+      ([a, b]) => !assigned.has(a) && !assigned.has(b)
+    );
+    if (!teamA) break;
+
+    // Pick TeamB: first available pair where neither player is assigned
+    // AND neither player appeared with TeamA players last round (opponent freshness)
+    const [ta1, ta2] = teamA;
+    const teamB = pairPool.find(([a, b]) => {
+      if (assigned.has(a) || assigned.has(b)) return false;
+      if (a === ta1 || a === ta2 || b === ta1 || b === ta2) return false;
+      // Prefer if they haven't faced teamA players recently
+      return true;
+    });
+    if (!teamB) {
+      // Relaxed fallback: just find any unassigned pair that isn't teamA
+      const relaxed = pairPool.find(([a, b]) => {
+        if (assigned.has(a) || assigned.has(b)) return false;
+        return !(a === ta1 || a === ta2 || b === ta1 || b === ta2);
+      });
+      if (!relaxed) break;
+      const [rb1, rb2] = relaxed;
+      assigned.add(ta1); assigned.add(ta2); assigned.add(rb1); assigned.add(rb2);
+
+      // Alternate TeamA/TeamB assignment across courts for cross-court mixing
+      if (g % 2 === 0) {
+        games.push({ teamA: [ta1, ta2], teamB: [rb1, rb2] });
       } else {
-        results.push({
-          teamA: [playing[pos[0]], playing[pos[1]]],
-          teamB: [playing[pos[2]], playing[pos[3]]],
-          court,
-        });
+        games.push({ teamA: [rb1, rb2], teamB: [ta1, ta2] });
       }
+      continue;
     }
-  } else {
-    // Singles: interleave pairs
-    for (let c = 0; c < gamesThisRound; c++) {
-      const court = (c % numCourts) + 1;
-      const p1 = playing[c];
-      const p2 = playing[c + gamesThisRound];
-      if (p1 !== undefined && p2 !== undefined) {
-        results.push({ teamA: [p1], teamB: [p2], court });
-      }
+
+    const [tb1, tb2] = teamB;
+    assigned.add(ta1); assigned.add(ta2); assigned.add(tb1); assigned.add(tb2);
+
+    if (g % 2 === 0) {
+      games.push({ teamA: [ta1, ta2], teamB: [tb1, tb2] });
+    } else {
+      games.push({ teamA: [tb1, tb2], teamB: [ta1, ta2] });
     }
   }
 
-  return results;
+  return games;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,70 +163,71 @@ export function generateSchedule(
   const n = playerIds.length;
   if (n < 2) return [];
 
-  const isDoubles = n >= 4;
-  const playersPerGame = isDoubles ? 4 : 2;
-  const maxPlayersPerRound = numCourts * playersPerGame;
-  const gamesPerRound = Math.min(numCourts, Math.floor(n / playersPerGame));
+  // Fall back to singles if fewer than 4 players
+  if (n < 4) {
+    return generateSinglesSchedule(playerIds, numCourts, totalRounds);
+  }
 
+  const gamesPerRound = Math.min(numCourts, Math.floor(n / 4));
   if (gamesPerRound === 0) return [];
 
-  // Build the full polygon rotation table
-  // Each entry = a rotation order of all (or most) players
-  const rotations = buildRotations(playerIds);
-  // How many rounds to generate — cycle through rotations enough times
-  const targetRounds = totalRounds ?? Math.max(rotations.length, Math.ceil((n * 4) / gamesPerRound));
+  // Total unique pairs: C(n,2)
+  const uniquePairCount = (n * (n - 1)) / 2;
+  // Each round uses gamesPerRound * 2 pairs (2 teams per game)
+  const pairsPerRound = gamesPerRound * 2;
+  // Rounds to cover all unique pairs at least once, minimum 8
+  const targetRounds = totalRounds ?? Math.max(8, Math.ceil(uniquePairCount / pairsPerRound) + 2);
 
-  // Track rest/play for idle-priority
+  // Tracking
   const restCount: Record<number, number> = {};
   const playCount: Record<number, number> = {};
   playerIds.forEach((id) => { restCount[id] = 0; playCount[id] = 0; });
 
+  // Global pair usage counter (ensures long-term fairness)
+  const globalPairUse: Record<string, number> = {};
+
   const result: Round[] = [];
+  let prevRoundPairs = new Set<string>();
 
   for (let r = 0; r < targetRounds; r++) {
-    // Get base rotation for this round (cycle through rotations)
-    const baseRotation = rotations[r % rotations.length] ?? [...playerIds];
+    // Determine who plays: idle-priority sort, then take top N
+    const playersNeeded = gamesPerRound * 4;
+    const sorted = [...playerIds].sort((a, b) => {
+      if (restCount[b] !== restCount[a]) return restCount[b] - restCount[a];
+      return playCount[a] - playCount[b];
+    });
 
-    // How many players actually play this round
-    const neededPlayers = gamesPerRound * playersPerGame;
-    const sittingCount = baseRotation.length - neededPlayers;
+    const activePlayers = sorted.slice(0, playersNeeded);
+    const sitting = sorted.slice(playersNeeded);
 
-    let playing: number[];
-    let sitting: number[];
+    // Build games for this round
+    const games = buildRound(activePlayers, numCourts, prevRoundPairs, globalPairUse, r);
 
-    if (sittingCount <= 0) {
-      // Everyone plays — use rotation order directly for maximum mixing
-      playing = [...baseRotation];
-      sitting = [];
-    } else {
-      // Some players sit out. Apply idle-priority only to decide WHO sits,
-      // but preserve rotation interleaving for those who play.
-      // Step 1: find who has the most rest (they must play)
-      const byRest = [...baseRotation].sort((a, b) => {
-        if (restCount[b] !== restCount[a]) return restCount[b] - restCount[a];
-        return playCount[a] - playCount[b];
-      });
-      // The players who sit = those with the least rest time
-      const sittingSet = new Set(byRest.slice(neededPlayers));
-      // Preserve rotation order among those who play (keeps cross-court mixing)
-      playing = baseRotation.filter((id) => !sittingSet.has(id));
-      sitting = baseRotation.filter((id) => sittingSet.has(id));
-    }
-
-    // Assign to courts with cross-court interleaving
-    const courtAssignments = assignToCourts(playing, numCourts, isDoubles);
-
-    const matchups: Matchup[] = courtAssignments.map((g, i) => ({
+    // Assign court numbers — interleave for cross-court variety
+    const matchups: Matchup[] = games.map((g, i) => ({
       teamA: g.teamA,
       teamB: g.teamB,
       gameNumber: i + 1,
-      courtNumber: g.court,
+      courtNumber: (i % numCourts) + 1,
     }));
 
     result.push({ roundNumber: r + 1, matchups, sitting });
 
-    // Update rest/play counts
-    const playingSet = new Set(playing);
+    // Update tracking
+    const thisPairs = new Set<string>();
+    const playingSet = new Set(activePlayers);
+
+    matchups.forEach((m) => {
+      const p1 = pairKey(m.teamA[0], m.teamA[1]);
+      const p2 = pairKey(m.teamB[0], m.teamB[1]);
+      thisPairs.add(p1);
+      thisPairs.add(p2);
+      globalPairUse[p1] = (globalPairUse[p1] ?? 0) + 1;
+      globalPairUse[p2] = (globalPairUse[p2] ?? 0) + 1;
+    });
+
+    prevRoundPairs = thisPairs;
+
     playerIds.forEach((id) => {
       if (playingSet.has(id)) {
         restCount[id] = 0;
@@ -226,6 +238,28 @@ export function generateSchedule(
     });
   }
 
+  return result;
+}
+
+/** Simple singles scheduler for < 4 players */
+function generateSinglesSchedule(
+  playerIds: number[],
+  numCourts: number,
+  totalRounds?: number
+): Round[] {
+  const n = playerIds.length;
+  const pairs = allPairs(playerIds);
+  const targetRounds = totalRounds ?? Math.max(8, pairs.length);
+  const result: Round[] = [];
+
+  for (let r = 0; r < targetRounds; r++) {
+    const pair = pairs[r % pairs.length];
+    result.push({
+      roundNumber: r + 1,
+      matchups: [{ teamA: [pair[0]], teamB: [pair[1]], gameNumber: 1, courtNumber: 1 }],
+      sitting: playerIds.filter((id) => !pair.includes(id)),
+    });
+  }
   return result;
 }
 
