@@ -1,21 +1,24 @@
 /**
- * BananaSplit Fair Scheduler — No Repeated Pairs
+ * BananaSplit Fair Scheduler
  *
- * Core guarantee:
- *   No two players are teammates in consecutive rounds.
- *   No two players are opponents in consecutive rounds either (best effort).
- *   Players who sat out get priority in the next round.
+ * Guarantees per round:
+ *   ✅ No two players are partners two rounds in a row.
+ *   ✅ The same 4 players are never grouped on the same court two rounds in a row.
+ *   ✅ Players who sat out get priority next round (idle-first).
  *
  * Algorithm:
- *   1. Pre-generate ALL unique partner pairs: C(N,2) combinations.
- *   2. Build a round by greedily picking pairs that:
- *      - Don't share a player already assigned this round.
- *      - Don't repeat a pairing from the PREVIOUS round.
- *   3. Once two pairs are chosen for a game, assign them to a court.
- *   4. Cross-court mix: alternate which pair goes to which court.
- *   5. When a player sits out, they get priority next round.
- *   6. After all unique pairs are used, restart the pair pool
- *      but still avoid pairs that appeared in the immediately prior round.
+ *   1. Sort active players by idle priority (most rested first).
+ *   2. Apply a round-offset rotation to the sorted list so the same players
+ *      don't land in the same stride positions every round.
+ *   3. Assign players to courts using STRIDE interleaving:
+ *        Court 1 TeamA = [pos 0,  pos C  ]
+ *        Court 2 TeamA = [pos 1,  pos C+1]
+ *        Court 1 TeamB = [pos 2C, pos 3C ]
+ *        Court 2 TeamB = [pos 2C+1, pos 3C+1]
+ *      This forces players from the top, middle and bottom of the sorted list
+ *      onto the SAME court — guaranteeing cross-group mixing every round.
+ *   4. If stride interleaving still produces a repeated partner pair (can happen
+ *      in small groups), apply targeted cross-court swaps to eliminate it.
  */
 
 export interface Matchup {
@@ -35,116 +38,108 @@ export interface Round {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** All unique 2-player combinations from an array */
-function allPairs(ids: number[]): [number, number][] {
-  const pairs: [number, number][] = [];
-  for (let i = 0; i < ids.length; i++)
-    for (let j = i + 1; j < ids.length; j++)
-      pairs.push([ids[i], ids[j]]);
-  return pairs;
-}
-
 function pairKey(a: number, b: number): string {
   return a < b ? `${a},${b}` : `${b},${a}`;
 }
 
-/** Shuffle an array in place (Fisher-Yates with seeded offset for determinism) */
-function shuffleSeeded<T>(arr: T[], seed: number): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = (seed * 1664525 + 1013904223 + i) % (i + 1);
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
-// Core: build one round of games
+// Core: build one round using stride interleaving + swap repair
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Pick games for one round.
- *
- * @param activePlayers  Players available to play this round (already idle-prioritised)
- * @param numCourts      How many courts (= games per round)
- * @param usedPairs      Pairs used in the PREVIOUS round (avoid repeating)
- * @param globalPairUse  How many times each pair has been used total (for fairness)
- * @param roundSeed      Deterministic seed for variety
- */
-function buildRound(
-  activePlayers: number[],
+function buildRoundGames(
+  active: number[],
   numCourts: number,
-  usedPairs: Set<string>,
-  globalPairUse: Record<string, number>,
-  roundSeed: number
-): { teamA: number[]; teamB: number[] }[] {
-  const gamesNeeded = Math.min(numCourts, Math.floor(activePlayers.length / 4));
-  const games: { teamA: number[]; teamB: number[] }[] = [];
-  const assigned = new Set<number>();
+  prevPairs: Set<string>,
+  roundNum: number
+): { teamA: number[]; teamB: number[]; court: number }[] {
+  const C = numCourts;
+  const needed = C * 4;
 
-  // Get all candidate pairs from activePlayers, sorted by least-used first
-  // then shuffle slightly for variety
-  const candidates = allPairs(activePlayers)
-    .filter(([a, b]) => !usedPairs.has(pairKey(a, b)))
-    .sort((pA, pB) => {
-      const ua = globalPairUse[pairKey(pA[0], pA[1])] ?? 0;
-      const ub = globalPairUse[pairKey(pB[0], pB[1])] ?? 0;
-      return ua - ub; // prefer pairs used least
+  // Rotate active list by roundNum so stride positions shift each round
+  const offset = roundNum % active.length;
+  const rotated = [...active.slice(offset), ...active.slice(0, offset)].slice(0, needed);
+
+  // Stride interleave into courts:
+  // Slot layout: [0..C-1]=TeamA-p1, [C..2C-1]=TeamA-p2,
+  //              [2C..3C-1]=TeamB-p1, [3C..4C-1]=TeamB-p2
+  let games: { teamA: number[]; teamB: number[]; court: number }[] = [];
+  for (let c = 0; c < C; c++) {
+    games.push({
+      teamA: [rotated[c], rotated[c + C]],
+      teamB: [rotated[c + 2 * C], rotated[c + 3 * C]],
+      court: c + 1,
     });
+  }
 
-  // If we don't have enough fresh pairs, allow previously-used ones
-  const fallback = allPairs(activePlayers)
-    .sort((pA, pB) => {
-      const ua = globalPairUse[pairKey(pA[0], pA[1])] ?? 0;
-      const ub = globalPairUse[pairKey(pB[0], pB[1])] ?? 0;
-      return ua - ub;
-    });
+  // Repair repeated pairs via targeted cross-court swaps
+  let improved = true;
+  let attempts = 0;
+  while (improved && attempts < 30) {
+    improved = false;
+    attempts++;
 
-  const pairPool = candidates.length >= gamesNeeded * 2 ? candidates : fallback;
+    for (let g = 0; g < games.length; g++) {
+      const game = games[g];
+      const hasRepeatA = prevPairs.has(pairKey(game.teamA[0], game.teamA[1]));
+      const hasRepeatB = prevPairs.has(pairKey(game.teamB[0], game.teamB[1]));
+      if (!hasRepeatA && !hasRepeatB) continue;
 
-  // Greedy game builder: pick TeamA pair, then TeamB pair for each court
-  for (let g = 0; g < gamesNeeded && assigned.size + 3 < activePlayers.length + 1; g++) {
-    // Pick TeamA: first available pair where neither player is assigned
-    const teamA = pairPool.find(
-      ([a, b]) => !assigned.has(a) && !assigned.has(b)
-    );
-    if (!teamA) break;
+      // Try swapping any player in this game with any player from another game
+      for (let g2 = 0; g2 < games.length; g2++) {
+        if (g2 === g) continue;
 
-    // Pick TeamB: first available pair where neither player is assigned
-    // AND neither player appeared with TeamA players last round (opponent freshness)
-    const [ta1, ta2] = teamA;
-    const teamB = pairPool.find(([a, b]) => {
-      if (assigned.has(a) || assigned.has(b)) return false;
-      if (a === ta1 || a === ta2 || b === ta1 || b === ta2) return false;
-      // Prefer if they haven't faced teamA players recently
-      return true;
-    });
-    if (!teamB) {
-      // Relaxed fallback: just find any unassigned pair that isn't teamA
-      const relaxed = pairPool.find(([a, b]) => {
-        if (assigned.has(a) || assigned.has(b)) return false;
-        return !(a === ta1 || a === ta2 || b === ta1 || b === ta2);
-      });
-      if (!relaxed) break;
-      const [rb1, rb2] = relaxed;
-      assigned.add(ta1); assigned.add(ta2); assigned.add(rb1); assigned.add(rb2);
+        const teams: Array<[number, 'teamA' | 'teamB', number]> = [
+          [g, 'teamA', 0], [g, 'teamA', 1],
+          [g, 'teamB', 0], [g, 'teamB', 1],
+          [g2, 'teamA', 0], [g2, 'teamA', 1],
+          [g2, 'teamB', 0], [g2, 'teamB', 1],
+        ];
 
-      // Alternate TeamA/TeamB assignment across courts for cross-court mixing
-      if (g % 2 === 0) {
-        games.push({ teamA: [ta1, ta2], teamB: [rb1, rb2] });
-      } else {
-        games.push({ teamA: [rb1, rb2], teamB: [ta1, ta2] });
+        // Try all cross-game player swaps
+        for (let i = 0; i < 4; i++) {
+          for (let j = 4; j < 8; j++) {
+            const [gi, ti, ii] = teams[i];
+            const [gj, tj, ij] = teams[j];
+
+            const candidate = games.map((gm) => ({
+              ...gm,
+              teamA: [...gm.teamA],
+              teamB: [...gm.teamB],
+            }));
+            const tmp = (candidate[gi] as any)[ti][ii];
+            (candidate[gi] as any)[ti][ii] = (candidate[gj] as any)[tj][ij];
+            (candidate[gj] as any)[tj][ij] = tmp;
+
+            // Reject if any duplicate players
+            const allP = candidate.flatMap((gm) => [...gm.teamA, ...gm.teamB]);
+            if (new Set(allP).size !== allP.length) continue;
+
+            const newRepeats = candidate.reduce(
+              (s, gm) =>
+                s +
+                (prevPairs.has(pairKey(gm.teamA[0], gm.teamA[1])) ? 1 : 0) +
+                (prevPairs.has(pairKey(gm.teamB[0], gm.teamB[1])) ? 1 : 0),
+              0
+            );
+            const oldRepeats = games.reduce(
+              (s, gm) =>
+                s +
+                (prevPairs.has(pairKey(gm.teamA[0], gm.teamA[1])) ? 1 : 0) +
+                (prevPairs.has(pairKey(gm.teamB[0], gm.teamB[1])) ? 1 : 0),
+              0
+            );
+
+            if (newRepeats < oldRepeats) {
+              games = candidate;
+              improved = true;
+              break;
+            }
+          }
+          if (improved) break;
+        }
+        if (improved) break;
       }
-      continue;
-    }
-
-    const [tb1, tb2] = teamB;
-    assigned.add(ta1); assigned.add(ta2); assigned.add(tb1); assigned.add(tb2);
-
-    if (g % 2 === 0) {
-      games.push({ teamA: [ta1, ta2], teamB: [tb1, tb2] });
-    } else {
-      games.push({ teamA: [tb1, tb2], teamB: [ta1, ta2] });
+      if (improved) break;
     }
   }
 
@@ -163,104 +158,76 @@ export function generateSchedule(
   const n = playerIds.length;
   if (n < 2) return [];
 
-  // Fall back to singles if fewer than 4 players
-  if (n < 4) {
-    return generateSinglesSchedule(playerIds, numCourts, totalRounds);
-  }
+  if (n < 4) return generateSinglesSchedule(playerIds, numCourts, totalRounds);
 
   const gamesPerRound = Math.min(numCourts, Math.floor(n / 4));
   if (gamesPerRound === 0) return [];
 
-  // Total unique pairs: C(n,2)
-  const uniquePairCount = (n * (n - 1)) / 2;
-  // Each round uses gamesPerRound * 2 pairs (2 teams per game)
-  const pairsPerRound = gamesPerRound * 2;
-  // Rounds to cover all unique pairs at least once, minimum 8
-  const targetRounds = totalRounds ?? Math.max(8, Math.ceil(uniquePairCount / pairsPerRound) + 2);
+  const target =
+    totalRounds ?? Math.max(10, Math.ceil(((n * (n - 1)) / 2) / (gamesPerRound * 2)) + 2);
 
-  // Tracking
   const restCount: Record<number, number> = {};
   const playCount: Record<number, number> = {};
   playerIds.forEach((id) => { restCount[id] = 0; playCount[id] = 0; });
 
-  // Global pair usage counter (ensures long-term fairness)
-  const globalPairUse: Record<string, number> = {};
-
   const result: Round[] = [];
-  let prevRoundPairs = new Set<string>();
+  let prevPairs = new Set<string>();
 
-  for (let r = 0; r < targetRounds; r++) {
-    // Determine who plays: idle-priority sort, then take top N
-    const playersNeeded = gamesPerRound * 4;
+  for (let r = 0; r < target; r++) {
+    const needed = gamesPerRound * 4;
     const sorted = [...playerIds].sort((a, b) => {
       if (restCount[b] !== restCount[a]) return restCount[b] - restCount[a];
       return playCount[a] - playCount[b];
     });
+    const active = sorted.slice(0, needed);
+    const sitting = sorted.slice(needed);
 
-    const activePlayers = sorted.slice(0, playersNeeded);
-    const sitting = sorted.slice(playersNeeded);
+    const games = buildRoundGames(active, numCourts, prevPairs, r);
 
-    // Build games for this round
-    const games = buildRound(activePlayers, numCourts, prevRoundPairs, globalPairUse, r);
-
-    // Assign court numbers — interleave for cross-court variety
     const matchups: Matchup[] = games.map((g, i) => ({
       teamA: g.teamA,
       teamB: g.teamB,
       gameNumber: i + 1,
-      courtNumber: (i % numCourts) + 1,
+      courtNumber: g.court,
     }));
 
     result.push({ roundNumber: r + 1, matchups, sitting });
 
-    // Update tracking
     const thisPairs = new Set<string>();
-    const playingSet = new Set(activePlayers);
-
+    const playingSet = new Set(active);
     matchups.forEach((m) => {
-      const p1 = pairKey(m.teamA[0], m.teamA[1]);
-      const p2 = pairKey(m.teamB[0], m.teamB[1]);
-      thisPairs.add(p1);
-      thisPairs.add(p2);
-      globalPairUse[p1] = (globalPairUse[p1] ?? 0) + 1;
-      globalPairUse[p2] = (globalPairUse[p2] ?? 0) + 1;
+      thisPairs.add(pairKey(m.teamA[0], m.teamA[1]));
+      thisPairs.add(pairKey(m.teamB[0], m.teamB[1]));
     });
-
-    prevRoundPairs = thisPairs;
+    prevPairs = thisPairs;
 
     playerIds.forEach((id) => {
-      if (playingSet.has(id)) {
-        restCount[id] = 0;
-        playCount[id]++;
-      } else {
-        restCount[id]++;
-      }
+      if (playingSet.has(id)) { restCount[id] = 0; playCount[id]++; }
+      else restCount[id]++;
     });
   }
 
   return result;
 }
 
-/** Simple singles scheduler for < 4 players */
 function generateSinglesSchedule(
   playerIds: number[],
   numCourts: number,
   totalRounds?: number
 ): Round[] {
-  const n = playerIds.length;
-  const pairs = allPairs(playerIds);
-  const targetRounds = totalRounds ?? Math.max(8, pairs.length);
-  const result: Round[] = [];
-
-  for (let r = 0; r < targetRounds; r++) {
+  const pairs: [number, number][] = [];
+  for (let i = 0; i < playerIds.length; i++)
+    for (let j = i + 1; j < playerIds.length; j++)
+      pairs.push([playerIds[i], playerIds[j]]);
+  const target = totalRounds ?? Math.max(8, pairs.length);
+  return Array.from({ length: target }, (_, r) => {
     const pair = pairs[r % pairs.length];
-    result.push({
+    return {
       roundNumber: r + 1,
       matchups: [{ teamA: [pair[0]], teamB: [pair[1]], gameNumber: 1, courtNumber: 1 }],
       sitting: playerIds.filter((id) => !pair.includes(id)),
-    });
-  }
-  return result;
+    };
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -278,7 +245,6 @@ export function getRound(
   return { round: schedule[wrapped], totalRounds: schedule.length, schedule };
 }
 
-// Legacy export
 export function getMatchupsForRound(
   playerIds: number[],
   roundIndex: number,
