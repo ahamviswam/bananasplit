@@ -44,6 +44,18 @@ function pairKey(a: number, b: number): string {
   return a < b ? `${a},${b}` : `${b},${a}`;
 }
 
+/** Deterministic Fisher-Yates shuffle seeded by a number */
+function seededShuffle<T>(arr: T[], seed: number): T[] {
+  const a = [...arr];
+  let s = seed;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    const j = Math.abs(s) % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Build one round: stride interleave + swap repair
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,7 +153,19 @@ export function generateSchedule(
   const restCount: Record<number, number> = {};
   const playCount: Record<number, number> = {};
   const lastSatRound: Record<number, number> = {};
-  playerIds.forEach((id) => { restCount[id] = 0; playCount[id] = 0; lastSatRound[id] = -99; });
+  playerIds.forEach((id) => { restCount[id] = 0; playCount[id] = 0; });
+
+  // Stagger initial lastSatRound so first sitting cycle is randomized
+  // (not serial P1→P2→P3…). Use a deterministic shuffle seeded by player count.
+  if (sittingCount > 0) {
+    const shuffled = seededShuffle(playerIds, n * 31 + numCourts * 7);
+    const cycleLen = Math.ceil(n / sittingCount);
+    shuffled.forEach((id, idx) => {
+      lastSatRound[id] = -(cycleLen - Math.floor((idx * cycleLen) / n)) - 1;
+    });
+  } else {
+    playerIds.forEach((id) => { lastSatRound[id] = -99; });
+  }
 
   const result: Round[] = [];
   let prevPairs = new Set<string>();
