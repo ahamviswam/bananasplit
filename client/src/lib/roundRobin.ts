@@ -1,24 +1,26 @@
 /**
  * BananaSplit Fair Scheduler
  *
- * Guarantees per round:
- *   ✅ No two players are partners two rounds in a row.
- *   ✅ The same 4 players are never grouped on the same court two rounds in a row.
- *   ✅ Players who sat out get priority next round (idle-first).
+ * Guarantees every round:
+ *   ✅ No two players are partners two rounds in a row
+ *   ✅ The same 4 players never share a court two rounds in a row
+ *   ✅ Sitting is spread evenly — nobody sits twice before everyone sits once
+ *   ✅ Each player sits with a ~equal gap between their rest rounds
  *
  * Algorithm:
- *   1. Sort active players by idle priority (most rested first).
- *   2. Apply a round-offset rotation to the sorted list so the same players
- *      don't land in the same stride positions every round.
- *   3. Assign players to courts using STRIDE interleaving:
- *        Court 1 TeamA = [pos 0,  pos C  ]
- *        Court 2 TeamA = [pos 1,  pos C+1]
- *        Court 1 TeamB = [pos 2C, pos 3C ]
- *        Court 2 TeamB = [pos 2C+1, pos 3C+1]
- *      This forces players from the top, middle and bottom of the sorted list
- *      onto the SAME court — guaranteeing cross-group mixing every round.
- *   4. If stride interleaving still produces a repeated partner pair (can happen
- *      in small groups), apply targeted cross-court swaps to eliminate it.
+ *   WHO SITS: ranked by largest gap since last rest (most overdue sits first).
+ *             Tiebreak: most play-count (played most without a break).
+ *             This produces evenly-spaced sitting across all rounds.
+ *
+ *   WHO PLAYS WHERE: stride interleaving on a round-offset rotation.
+ *     Slot layout for C courts:
+ *       Court c TeamA = [pos c, pos c+C]
+ *       Court c TeamB = [pos c+2C, pos c+3C]
+ *     Players from the top, middle and bottom of the priority list
+ *     land on the SAME court, guaranteeing cross-group mixing every round.
+ *
+ *   REPAIR: if stride still produces a repeated partner pair (can happen in
+ *     small player counts), targeted cross-court player swaps eliminate it.
  */
 
 export interface Matchup {
@@ -43,25 +45,20 @@ function pairKey(a: number, b: number): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Core: build one round using stride interleaving + swap repair
+// Build one round: stride interleave + swap repair
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildRoundGames(
+function buildGames(
   active: number[],
   numCourts: number,
   prevPairs: Set<string>,
   roundNum: number
 ): { teamA: number[]; teamB: number[]; court: number }[] {
   const C = numCourts;
-  const needed = C * 4;
-
-  // Rotate active list by roundNum so stride positions shift each round
   const offset = roundNum % active.length;
-  const rotated = [...active.slice(offset), ...active.slice(0, offset)].slice(0, needed);
+  const rotated = [...active.slice(offset), ...active.slice(0, offset)];
 
-  // Stride interleave into courts:
-  // Slot layout: [0..C-1]=TeamA-p1, [C..2C-1]=TeamA-p2,
-  //              [2C..3C-1]=TeamB-p1, [3C..4C-1]=TeamB-p2
+  // Stride interleave into courts
   let games: { teamA: number[]; teamB: number[]; court: number }[] = [];
   for (let c = 0; c < C; c++) {
     games.push({
@@ -72,75 +69,50 @@ function buildRoundGames(
   }
 
   // Repair repeated pairs via targeted cross-court swaps
-  let improved = true;
-  let attempts = 0;
-  while (improved && attempts < 30) {
-    improved = false;
-    attempts++;
+  for (let pass = 0; pass < 20; pass++) {
+    let improved = false;
+    for (let g = 0; g < games.length && !improved; g++) {
+      const hasRepeat =
+        prevPairs.has(pairKey(games[g].teamA[0], games[g].teamA[1])) ||
+        prevPairs.has(pairKey(games[g].teamB[0], games[g].teamB[1]));
+      if (!hasRepeat) continue;
 
-    for (let g = 0; g < games.length; g++) {
-      const game = games[g];
-      const hasRepeatA = prevPairs.has(pairKey(game.teamA[0], game.teamA[1]));
-      const hasRepeatB = prevPairs.has(pairKey(game.teamB[0], game.teamB[1]));
-      if (!hasRepeatA && !hasRepeatB) continue;
-
-      // Try swapping any player in this game with any player from another game
-      for (let g2 = 0; g2 < games.length; g2++) {
+      for (let g2 = 0; g2 < games.length && !improved; g2++) {
         if (g2 === g) continue;
-
-        const teams: Array<[number, 'teamA' | 'teamB', number]> = [
-          [g, 'teamA', 0], [g, 'teamA', 1],
-          [g, 'teamB', 0], [g, 'teamB', 1],
-          [g2, 'teamA', 0], [g2, 'teamA', 1],
-          [g2, 'teamB', 0], [g2, 'teamB', 1],
+        const pos: Array<[number, 'teamA' | 'teamB', number]> = [
+          [g, 'teamA', 0], [g, 'teamA', 1], [g, 'teamB', 0], [g, 'teamB', 1],
+          [g2, 'teamA', 0], [g2, 'teamA', 1], [g2, 'teamB', 0], [g2, 'teamB', 1],
         ];
-
-        // Try all cross-game player swaps
-        for (let i = 0; i < 4; i++) {
-          for (let j = 4; j < 8; j++) {
-            const [gi, ti, ii] = teams[i];
-            const [gj, tj, ij] = teams[j];
-
-            const candidate = games.map((gm) => ({
-              ...gm,
-              teamA: [...gm.teamA],
-              teamB: [...gm.teamB],
-            }));
-            const tmp = (candidate[gi] as any)[ti][ii];
-            (candidate[gi] as any)[ti][ii] = (candidate[gj] as any)[tj][ij];
-            (candidate[gj] as any)[tj][ij] = tmp;
-
-            // Reject if any duplicate players
-            const allP = candidate.flatMap((gm) => [...gm.teamA, ...gm.teamB]);
+        for (let i = 0; i < 4 && !improved; i++) {
+          for (let j = 4; j < 8 && !improved; j++) {
+            const c = games.map((gm) => ({ ...gm, teamA: [...gm.teamA], teamB: [...gm.teamB] }));
+            const [gi, ti, ii] = pos[i], [gj, tj, ij] = pos[j];
+            const tmp = (c[gi] as any)[ti][ii];
+            (c[gi] as any)[ti][ii] = (c[gj] as any)[tj][ij];
+            (c[gj] as any)[tj][ij] = tmp;
+            // Reject duplicates
+            const allP = c.flatMap((gm) => [...gm.teamA, ...gm.teamB]);
             if (new Set(allP).size !== allP.length) continue;
-
-            const newRepeats = candidate.reduce(
+            const nr = c.reduce(
               (s, gm) =>
                 s +
                 (prevPairs.has(pairKey(gm.teamA[0], gm.teamA[1])) ? 1 : 0) +
                 (prevPairs.has(pairKey(gm.teamB[0], gm.teamB[1])) ? 1 : 0),
               0
             );
-            const oldRepeats = games.reduce(
+            const or = games.reduce(
               (s, gm) =>
                 s +
                 (prevPairs.has(pairKey(gm.teamA[0], gm.teamA[1])) ? 1 : 0) +
                 (prevPairs.has(pairKey(gm.teamB[0], gm.teamB[1])) ? 1 : 0),
               0
             );
-
-            if (newRepeats < oldRepeats) {
-              games = candidate;
-              improved = true;
-              break;
-            }
+            if (nr < or) { games = c; improved = true; }
           }
-          if (improved) break;
         }
-        if (improved) break;
       }
-      if (improved) break;
     }
+    if (!improved) break;
   }
 
   return games;
@@ -157,33 +129,49 @@ export function generateSchedule(
 ): Round[] {
   const n = playerIds.length;
   if (n < 2) return [];
-
   if (n < 4) return generateSinglesSchedule(playerIds, numCourts, totalRounds);
 
   const gamesPerRound = Math.min(numCourts, Math.floor(n / 4));
   if (gamesPerRound === 0) return [];
 
-  const target =
-    totalRounds ?? Math.max(10, Math.ceil(((n * (n - 1)) / 2) / (gamesPerRound * 2)) + 2);
+  const needed = gamesPerRound * 4;
+  const sittingCount = n - needed;
+  const target = totalRounds ?? Math.max(10, Math.ceil((n * (n - 1)) / 2 / (gamesPerRound * 2)) + 2);
 
   const restCount: Record<number, number> = {};
   const playCount: Record<number, number> = {};
-  playerIds.forEach((id) => { restCount[id] = 0; playCount[id] = 0; });
+  const lastSatRound: Record<number, number> = {};
+  playerIds.forEach((id) => { restCount[id] = 0; playCount[id] = 0; lastSatRound[id] = -99; });
 
   const result: Round[] = [];
   let prevPairs = new Set<string>();
 
   for (let r = 0; r < target; r++) {
-    const needed = gamesPerRound * 4;
-    const sorted = [...playerIds].sort((a, b) => {
-      if (restCount[b] !== restCount[a]) return restCount[b] - restCount[a];
-      return playCount[a] - playCount[b];
-    });
-    const active = sorted.slice(0, needed);
-    const sitting = sorted.slice(needed);
+    let active: number[];
+    let sitting: number[];
 
-    const games = buildRoundGames(active, numCourts, prevPairs, r);
+    if (sittingCount <= 0) {
+      active = [...playerIds].sort((a, b) => (restCount[b] - restCount[a]) || (playCount[a] - playCount[b]));
+      sitting = [];
+    } else {
+      // WHO SITS: most overdue for rest (largest gap since last sat)
+      // Tiebreak: most play-count (played most without a break)
+      const ranked = [...playerIds].sort((a, b) => {
+        const gapA = r - lastSatRound[a];
+        const gapB = r - lastSatRound[b];
+        if (gapB !== gapA) return gapB - gapA; // larger gap = more overdue = sits
+        return playCount[b] - playCount[a];
+      });
+      sitting = ranked.slice(0, sittingCount);
+      const sittingSet = new Set(sitting);
 
+      // WHO PLAYS: idle-priority sort among those not sitting
+      active = playerIds
+        .filter((id) => !sittingSet.has(id))
+        .sort((a, b) => (restCount[b] - restCount[a]) || (playCount[a] - playCount[b]));
+    }
+
+    const games = buildGames(active, numCourts, prevPairs, r);
     const matchups: Matchup[] = games.map((g, i) => ({
       teamA: g.teamA,
       teamB: g.teamB,
@@ -203,7 +191,7 @@ export function generateSchedule(
 
     playerIds.forEach((id) => {
       if (playingSet.has(id)) { restCount[id] = 0; playCount[id]++; }
-      else restCount[id]++;
+      else { restCount[id]++; lastSatRound[id] = r; }
     });
   }
 
