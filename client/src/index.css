@@ -5,255 +5,219 @@
 /* ── Google Fonts ─────────────────────────────────────────────────────────── */
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
-/* ── Modern Gradient Theme — BananaSplit ─────────────────────────────────── */
-/* Palette: electric lime + deep court teal + warm banana amber                */
-/* Vibe: active-sport app meets modern SaaS — energetic, clean, premium        */
+/* ── Lovable-Style Gradient Theme — BananaSplit ──────────────────────────── */
+/* Palette: sky blue → violet purple → hot pink mesh gradient                  */
+/* Vibe: modern SaaS, airy, light surfaces, vibrant gradient backgrounds       */
 
 @layer base {
   :root {
-    /* Core surfaces */
-    --background: 220 20% 97%;
-    --foreground: 220 25% 10%;
+    /* Core surfaces — light, clean */
+    --background: 240 20% 98%;
+    --foreground: 240 15% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 220 25% 10%;
+    --card-foreground: 240 15% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 220 25% 10%;
+    --popover-foreground: 240 15% 12%;
 
-    /* Primary — electric lime-green */
-    --primary: 88 65% 38%;
+    /* Primary — vivid violet/purple */
+    --primary: 258 80% 58%;
     --primary-foreground: 0 0% 100%;
 
     /* Secondary */
-    --secondary: 88 30% 93%;
-    --secondary-foreground: 88 50% 20%;
+    --secondary: 258 40% 95%;
+    --secondary-foreground: 258 60% 30%;
 
     /* Muted */
-    --muted: 220 15% 93%;
-    --muted-foreground: 220 12% 48%;
+    --muted: 240 15% 94%;
+    --muted-foreground: 240 10% 50%;
 
-    /* Accent — banana amber */
-    --accent: 43 96% 56%;
-    --accent-foreground: 43 50% 12%;
+    /* Accent — hot pink */
+    --accent: 325 90% 58%;
+    --accent-foreground: 0 0% 100%;
 
     /* Destructive */
     --destructive: 4 74% 54%;
     --destructive-foreground: 0 0% 100%;
 
     /* Borders / inputs */
-    --border: 220 13% 88%;
-    --input: 220 13% 88%;
-    --ring: 88 65% 38%;
+    --border: 240 12% 88%;
+    --input: 240 12% 88%;
+    --ring: 258 80% 58%;
 
     /* Sidebar */
-    --sidebar-background: 224 32% 10%;
-    --sidebar-foreground: 220 15% 85%;
-    --sidebar-primary: 43 96% 56%;
-    --sidebar-primary-foreground: 43 50% 10%;
-    --sidebar-accent: 224 28% 16%;
-    --sidebar-accent-foreground: 220 15% 90%;
-    --sidebar-border: 224 22% 18%;
-    --sidebar-ring: 88 65% 38%;
+    --sidebar-background: 246 30% 12%;
+    --sidebar-foreground: 240 15% 85%;
+    --sidebar-primary: 258 80% 65%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 246 26% 18%;
+    --sidebar-accent-foreground: 240 15% 90%;
+    --sidebar-border: 246 22% 20%;
+    --sidebar-ring: 258 80% 58%;
 
     /* Charts */
-    --chart-1: 88 65% 38%;
-    --chart-2: 43 96% 56%;
-    --chart-3: 196 75% 45%;
-    --chart-4: 16 80% 55%;
-    --chart-5: 270 60% 55%;
+    --chart-1: 258 80% 58%;
+    --chart-2: 325 90% 58%;
+    --chart-3: 210 85% 55%;
+    --chart-4: 43 96% 56%;
+    --chart-5: 160 60% 45%;
 
-    --radius: 0.625rem;
+    --radius: 0.75rem;
     --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
 
-    /* Gradient tokens */
-    --grad-primary: linear-gradient(135deg, hsl(88 65% 38%), hsl(160 60% 38%));
-    --grad-accent: linear-gradient(135deg, hsl(43 96% 56%), hsl(28 95% 58%));
-    --grad-hero: linear-gradient(135deg, hsl(224 32% 8%) 0%, hsl(224 28% 14%) 50%, hsl(196 45% 12%) 100%);
-    --grad-card: linear-gradient(145deg, hsl(0 0% 100%) 0%, hsl(88 20% 98%) 100%);
-    --grad-mesh: radial-gradient(ellipse at 20% 50%, hsl(88 65% 38% / 0.08) 0%, transparent 60%),
-                 radial-gradient(ellipse at 80% 20%, hsl(43 96% 56% / 0.08) 0%, transparent 60%),
-                 radial-gradient(ellipse at 60% 80%, hsl(196 75% 45% / 0.06) 0%, transparent 60%);
+    /* ── Gradient tokens ──────────────────────────────────────────────────── */
+    /* Mesh gradient — blue top-left, purple mid, pink bottom-right           */
+    --grad-mesh-1: radial-gradient(ellipse at 15% 20%, hsl(210 90% 65% / 0.55) 0%, transparent 55%);
+    --grad-mesh-2: radial-gradient(ellipse at 75% 15%, hsl(258 85% 68% / 0.50) 0%, transparent 55%);
+    --grad-mesh-3: radial-gradient(ellipse at 85% 75%, hsl(325 90% 62% / 0.55) 0%, transparent 55%);
+    --grad-mesh-4: radial-gradient(ellipse at 25% 80%, hsl(280 80% 65% / 0.35) 0%, transparent 50%);
+
+    /* Button gradient */
+    --grad-primary: linear-gradient(135deg, hsl(258 80% 58%), hsl(325 90% 58%));
+    --grad-primary-hover: linear-gradient(135deg, hsl(258 80% 52%), hsl(325 90% 52%));
+
+    /* Card subtle gradient */
+    --grad-card: linear-gradient(145deg, hsl(0 0% 100%) 0%, hsl(258 30% 99%) 100%);
   }
 
   .dark {
-    --background: 224 30% 7%;
-    --foreground: 220 15% 90%;
-    --card: 224 28% 11%;
-    --card-foreground: 220 15% 90%;
-    --popover: 224 28% 11%;
-    --popover-foreground: 220 15% 90%;
-    --primary: 88 60% 50%;
-    --primary-foreground: 224 30% 7%;
-    --secondary: 224 22% 16%;
-    --secondary-foreground: 88 40% 80%;
-    --muted: 224 20% 14%;
-    --muted-foreground: 220 12% 52%;
-    --accent: 43 90% 54%;
-    --accent-foreground: 43 50% 10%;
-    --destructive: 4 68% 55%;
+    --background: 246 28% 8%;
+    --foreground: 240 15% 92%;
+    --card: 246 26% 12%;
+    --card-foreground: 240 15% 92%;
+    --popover: 246 26% 12%;
+    --popover-foreground: 240 15% 92%;
+
+    --primary: 258 80% 65%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 246 22% 18%;
+    --secondary-foreground: 240 15% 80%;
+
+    --muted: 246 22% 16%;
+    --muted-foreground: 240 10% 55%;
+
+    --accent: 325 85% 62%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 4 68% 50%;
     --destructive-foreground: 0 0% 100%;
-    --border: 224 18% 18%;
-    --input: 224 18% 18%;
-    --ring: 88 60% 50%;
-    --sidebar-background: 224 35% 6%;
-    --sidebar-foreground: 220 15% 82%;
-    --sidebar-primary: 43 90% 54%;
-    --sidebar-primary-foreground: 43 50% 10%;
-    --sidebar-accent: 224 28% 12%;
-    --sidebar-accent-foreground: 220 15% 88%;
-    --sidebar-border: 224 22% 14%;
-    --sidebar-ring: 88 60% 50%;
-    --chart-1: 88 60% 50%;
-    --chart-2: 43 90% 54%;
-    --chart-3: 196 68% 55%;
-    --chart-4: 16 72% 60%;
-    --chart-5: 270 55% 65%;
 
-    --grad-primary: linear-gradient(135deg, hsl(88 60% 50%), hsl(160 55% 46%));
-    --grad-accent: linear-gradient(135deg, hsl(43 90% 54%), hsl(28 88% 58%));
-    --grad-hero: linear-gradient(135deg, hsl(224 40% 5%) 0%, hsl(224 32% 10%) 50%, hsl(196 50% 8%) 100%);
-    --grad-card: linear-gradient(145deg, hsl(224 28% 11%) 0%, hsl(224 24% 13%) 100%);
-    --grad-mesh: radial-gradient(ellipse at 20% 50%, hsl(88 60% 50% / 0.12) 0%, transparent 60%),
-                 radial-gradient(ellipse at 80% 20%, hsl(43 90% 54% / 0.1) 0%, transparent 60%),
-                 radial-gradient(ellipse at 60% 80%, hsl(196 68% 55% / 0.08) 0%, transparent 60%);
+    --border: 246 18% 22%;
+    --input: 246 18% 22%;
+    --ring: 258 80% 65%;
+
+    --sidebar-background: 246 32% 7%;
+    --sidebar-foreground: 240 15% 85%;
+    --sidebar-primary: 258 80% 65%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 246 26% 14%;
+    --sidebar-accent-foreground: 240 15% 90%;
+    --sidebar-border: 246 22% 16%;
+    --sidebar-ring: 258 80% 65%;
   }
-}
 
-@layer base {
-  * { @apply border-border; }
+  * {
+    @apply border-border;
+  }
+
   body {
     @apply bg-background text-foreground;
-    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-family: var(--font-sans);
+    font-feature-settings: "rlig" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    background-image: var(--grad-mesh);
-    background-attachment: fixed;
   }
 }
 
-/* ── Gradient utilities ──────────────────────────────────────────────────── */
+/* ── Mesh gradient background ─────────────────────────────────────────────── */
+/* Applied to app-root so the gradient is always visible behind the content   */
 @layer utilities {
-  /* Gradient backgrounds */
-  .bg-gradient-primary { background: var(--grad-primary); }
-  .bg-gradient-accent  { background: var(--grad-accent); }
-  .bg-gradient-hero    { background: var(--grad-hero); }
-  .bg-gradient-card    { background: var(--grad-card); }
+  .mesh-bg {
+    position: relative;
+    isolation: isolate;
+    background-color: hsl(var(--background));
+  }
 
-  /* Gradient text */
+  .mesh-bg::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+      var(--grad-mesh-1),
+      var(--grad-mesh-2),
+      var(--grad-mesh-3),
+      var(--grad-mesh-4),
+      hsl(var(--background));
+    pointer-events: none;
+  }
+
+  /* ── Glass surface ─────────────────────────────────────────────────────── */
+  .glass {
+    background: hsl(0 0% 100% / 0.70);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid hsl(0 0% 100% / 0.60);
+  }
+
+  .glass-strong {
+    background: hsl(0 0% 100% / 0.85);
+    backdrop-filter: blur(32px) saturate(200%);
+    -webkit-backdrop-filter: blur(32px) saturate(200%);
+    border: 1px solid hsl(0 0% 100% / 0.70);
+  }
+
+  .dark .glass {
+    background: hsl(246 28% 12% / 0.75);
+    border-color: hsl(246 22% 28% / 0.60);
+  }
+
+  .dark .glass-strong {
+    background: hsl(246 28% 12% / 0.90);
+    border-color: hsl(246 22% 28% / 0.70);
+  }
+
+  /* ── Gradient button ───────────────────────────────────────────────────── */
+  .btn-gradient {
+    background: var(--grad-primary);
+    color: white;
+    border: none;
+    transition: opacity 0.2s, transform 0.15s;
+  }
+
+  .btn-gradient:hover {
+    opacity: 0.92;
+    transform: translateY(-1px);
+  }
+
+  .btn-gradient:active {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+  /* ── Gradient text ─────────────────────────────────────────────────────── */
   .text-gradient {
     background: var(--grad-primary);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
-  .text-gradient-accent {
-    background: var(--grad-accent);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+
+  /* ── Gradient card border glow ─────────────────────────────────────────── */
+  .card-glow {
+    box-shadow:
+      0 0 0 1px hsl(258 80% 58% / 0.15),
+      0 4px 24px hsl(258 80% 58% / 0.08),
+      0 1px 3px hsl(0 0% 0% / 0.06);
   }
 
-  /* Glass morphism */
-  .glass {
-    background: hsl(var(--card) / 0.7);
-    backdrop-filter: blur(16px) saturate(1.4);
-    -webkit-backdrop-filter: blur(16px) saturate(1.4);
-    border: 1px solid hsl(var(--border) / 0.6);
-  }
-  .glass-strong {
-    background: hsl(var(--card) / 0.85);
-    backdrop-filter: blur(24px) saturate(1.6);
-    -webkit-backdrop-filter: blur(24px) saturate(1.6);
-    border: 1px solid hsl(var(--border) / 0.5);
+  /* ── Pulse ring for floating button ───────────────────────────────────── */
+  @keyframes pulse-ring {
+    0%   { box-shadow: 0 0 0 0 hsl(258 80% 58% / 0.4); }
+    70%  { box-shadow: 0 0 0 10px hsl(258 80% 58% / 0); }
+    100% { box-shadow: 0 0 0 0 hsl(258 80% 58% / 0); }
   }
 
-  /* Elevation */
-  .hover-elevate {
-    transition: box-shadow 180ms cubic-bezier(0.16, 1, 0.3, 1),
-                transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  .pulse-ring {
+    animation: pulse-ring 2.2s ease-out infinite;
   }
-  .hover-elevate:hover {
-    box-shadow: 0 8px 32px hsl(var(--foreground) / 0.1),
-                0 2px 8px hsl(88 65% 38% / 0.12);
-    transform: translateY(-2px);
-  }
-
-  /* Glow effects */
-  .glow-primary {
-    box-shadow: 0 0 24px hsl(88 65% 38% / 0.35),
-                0 0 8px hsl(88 65% 38% / 0.2);
-  }
-  .glow-accent {
-    box-shadow: 0 0 24px hsl(43 96% 56% / 0.4),
-                0 0 8px hsl(43 96% 56% / 0.25);
-  }
-
-  /* Gradient border */
-  .border-gradient {
-    border: 1px solid transparent;
-    background-clip: padding-box;
-    position: relative;
-  }
-  .border-gradient::before {
-    content: '';
-    position: absolute;
-    inset: -1px;
-    border-radius: inherit;
-    background: var(--grad-primary);
-    z-index: -1;
-  }
-}
-
-/* ── Balance colors ─────────────────────────────────────────────────────── */
-.balance-positive { color: hsl(88 55% 36%); }
-.balance-negative { color: hsl(4 68% 50%); }
-.dark .balance-positive { color: hsl(88 55% 60%); }
-.dark .balance-negative { color: hsl(4 68% 64%); }
-
-/* ── Scrollbar ──────────────────────────────────────────────────────────── */
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: hsl(var(--border));
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
-
-/* ── Card gradient shimmer ──────────────────────────────────────────────── */
-.card-gradient {
-  background: var(--grad-card);
-  box-shadow: 0 1px 3px hsl(var(--foreground) / 0.06),
-              0 1px 2px hsl(var(--foreground) / 0.04);
-}
-
-/* ── Animated gradient button ───────────────────────────────────────────── */
-.btn-gradient {
-  background: var(--grad-primary);
-  color: white;
-  border: none;
-  background-size: 200% 200%;
-  animation: gradientShift 4s ease infinite;
-  transition: opacity 0.2s, transform 0.15s;
-}
-.btn-gradient:hover { opacity: 0.92; transform: translateY(-1px); }
-
-@keyframes gradientShift {
-  0%   { background-position: 0% 50%; }
-  50%  { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
-/* ── Floating feedback button pulse ─────────────────────────────────────── */
-@keyframes pulse-ring {
-  0%   { transform: scale(1); opacity: 0.6; }
-  70%  { transform: scale(1.35); opacity: 0; }
-  100% { transform: scale(1.35); opacity: 0; }
-}
-.pulse-ring::before {
-  content: '';
-  position: absolute;
-  inset: -4px;
-  border-radius: 50%;
-  background: var(--grad-primary);
-  animation: pulse-ring 2.5s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
-  z-index: -1;
 }

@@ -61,18 +61,19 @@ export function FeedbackButton() {
         <div className="relative">
           {/* Pulse ring */}
           {!open && (
-            <span className="absolute inset-0 rounded-full bg-gradient-primary opacity-40 animate-ping" />
+            <span className="absolute inset-0 rounded-full opacity-40 animate-ping" style={{ background: "linear-gradient(135deg, hsl(258 80% 58%), hsl(325 90% 58%))" }} />
           )}
           <Button
             onClick={() => setOpen(v => !v)}
             className={cn(
               "relative w-14 h-14 rounded-full shadow-2xl transition-all duration-300",
-              "bg-gradient-primary hover:opacity-90 border-0",
+              "hover:opacity-90 border-0 text-white",
               "flex items-center justify-center",
               open && "rotate-90"
             )}
             data-testid="btn-feedback-open"
             aria-label="Give feedback"
+            style={{ background: "linear-gradient(135deg, hsl(258 80% 58%), hsl(325 90% 58%))" }}
           >
             {open
               ? <X className="w-5 h-5 text-white" />
@@ -86,7 +87,7 @@ export function FeedbackButton() {
       {open && (
         <div className="fixed bottom-24 right-6 z-50 w-80 glass-strong rounded-2xl shadow-2xl border border-border/50 overflow-hidden animate-in slide-in-from-bottom-4 duration-200">
           {/* Header */}
-          <div className="bg-gradient-primary px-4 py-3">
+          <div className="px-4 py-3" style={{ background: "linear-gradient(135deg, hsl(258 80% 58%), hsl(325 90% 58%))" }}>
             <h3 className="text-white font-bold text-sm">Share your feedback</h3>
             <p className="text-white/70 text-xs mt-0.5">Help us make BananaSplit better</p>
           </div>

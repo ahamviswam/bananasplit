@@ -11,7 +11,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { cn } from "@/lib/utils";
 
 // ── Custom SVG Logo ────────────────────────────────────────────────────────────
-export function BananaSplitLogo({ size = 28 }: { size?: number }) {
+export function BananaSplitLogo({ size = 28, className }: { size?: number; className?: string }) {
   return (
     <svg
       width={size} height={size} viewBox="0 0 32 32" fill="none"
@@ -23,8 +23,8 @@ export function BananaSplitLogo({ size = 28 }: { size?: number }) {
           <stop offset="100%" stopColor="#f4a261"/>
         </linearGradient>
         <linearGradient id="splitGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#4ade80"/>
-          <stop offset="100%" stopColor="#16a34a"/>
+          <stop offset="0%" stopColor="#a78bfa"/>
+          <stop offset="100%" stopColor="#ec4899"/>
         </linearGradient>
       </defs>
       <path
@@ -61,11 +61,11 @@ export function AppShell({ title, backHref, actions, children }: AppShellProps) 
   const isHome = location === "/";
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* ── Gradient header ─────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 glass-strong shadow-sm">
+    <div className="min-h-screen mesh-bg flex flex-col">
+      {/* ── Glass header ─────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-40 glass-strong shadow-sm border-b border-white/60">
         {/* Gradient accent line at top */}
-        <div className="h-0.5 bg-gradient-primary w-full" />
+        <div className="h-0.5 w-full" style={{ background: "linear-gradient(90deg, hsl(210 90% 65%), hsl(258 80% 58%), hsl(325 90% 58%))" }} />
 
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center gap-3">
           {/* Back or logo */}
@@ -80,8 +80,8 @@ export function AppShell({ title, backHref, actions, children }: AppShellProps) 
           {/* Logo + wordmark (home) or title (inner pages) */}
           {isHome ? (
             <div className="flex-1 flex items-center gap-2.5">
-              <div className="p-1.5 rounded-xl bg-gradient-primary shadow-sm">
-                <BananaSplitLogo size={22} />
+              <div className="p-1.5 rounded-xl shadow-sm" style={{ background: "linear-gradient(135deg, hsl(258 80% 58%), hsl(325 90% 58%))" }}>
+                <BananaSplitLogo size={22} className="text-white" />
               </div>
               <span className="font-bold text-base tracking-tight text-gradient">
                 BananaSplit
@@ -92,8 +92,8 @@ export function AppShell({ title, backHref, actions, children }: AppShellProps) 
               {!backHref && (
                 <Link href="/">
                   <button className="flex items-center gap-2 hover:opacity-80 transition-opacity" data-testid="link-home">
-                    <div className="p-1 rounded-lg bg-gradient-primary shadow-sm">
-                      <BananaSplitLogo size={18} />
+                    <div className="p-1 rounded-lg shadow-sm" style={{ background: "linear-gradient(135deg, hsl(258 80% 58%), hsl(325 90% 58%))" }}>
+                      <BananaSplitLogo size={18} className="text-white" />
                     </div>
                   </button>
                 </Link>
@@ -133,7 +133,7 @@ export function AppShell({ title, backHref, actions, children }: AppShellProps) 
                     data-testid="btn-user-menu"
                   >
                     <Avatar className="w-7 h-7">
-                      <AvatarFallback className="text-xs font-bold bg-gradient-primary text-white">
+                      <AvatarFallback className="text-xs font-bold text-white" style={{ background: "linear-gradient(135deg, hsl(258 80% 58%), hsl(325 90% 58%))" }}>
                         {user.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
                       </AvatarFallback>
                     </Avatar>
