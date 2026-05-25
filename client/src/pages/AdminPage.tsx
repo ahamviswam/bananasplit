@@ -354,10 +354,9 @@ export default function AdminPage() {
             </div>
           )}
         </TabsContent>
-      </Tabs>
 
-      {/* ── Feedback Tab ── */}
-      <TabsContent value="feedback">
+        {/* ── Feedback Tab ── */}
+        <TabsContent value="feedback">
         {feedbackList.length === 0 ? (
           <div className="text-center py-10 text-muted-foreground text-sm">No feedback yet</div>
         ) : (
@@ -396,7 +395,8 @@ export default function AdminPage() {
             ))}
           </div>
         )}
-      </TabsContent>
+        </TabsContent>
+      </Tabs>
 
       {/* Delete user dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
