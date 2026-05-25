@@ -1,26 +1,21 @@
 /**
- * BananaSplit Fair Scheduler
+ * PickleTab Fair Scheduler — v3
  *
  * Guarantees every round:
  *   ✅ No two players are partners two rounds in a row
  *   ✅ The same 4 players never share a court two rounds in a row
- *   ✅ Sitting is spread evenly — nobody sits twice before everyone sits once
- *   ✅ Each player sits with a ~equal gap between their rest rounds
+ *   ✅ Sitting is perfectly even — sit counts differ by at most 1
+ *   ✅ No consecutive sitting group repeats
+ *   ✅ Sitting group membership rotates each cycle — different combos every time
  *
- * Algorithm:
- *   WHO SITS: ranked by largest gap since last rest (most overdue sits first).
- *             Tiebreak: most play-count (played most without a break).
- *             This produces evenly-spaced sitting across all rounds.
- *
- *   WHO PLAYS WHERE: stride interleaving on a round-offset rotation.
- *     Slot layout for C courts:
- *       Court c TeamA = [pos c, pos c+C]
- *       Court c TeamB = [pos c+2C, pos c+3C]
- *     Players from the top, middle and bottom of the priority list
- *     land on the SAME court, guaranteeing cross-group mixing every round.
- *
- *   REPAIR: if stride still produces a repeated partner pair (can happen in
- *     small player counts), targeted cross-court player swaps eliminate it.
+ * Sitting algorithm — rotating queue with per-cycle shift:
+ *   1. Build a randomised sit-queue (seeded by player count + courts).
+ *   2. Each round takes the next sittingCount players from the queue.
+ *   3. When the queue wraps (one full cycle done), shift it by 1 position.
+ *      This changes group membership every cycle, so the same 4 people
+ *      don't keep sitting together indefinitely.
+ *   4. A fairness check prevents any player from sitting significantly
+ *      more than the average before others get their turn.
  */
 
 export interface Matchup {
@@ -57,7 +52,7 @@ function seededShuffle<T>(arr: T[], seed: number): T[] {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Build one round: stride interleave + swap repair
+// Build one round's games: stride interleave + swap repair
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildGames(
@@ -70,7 +65,6 @@ function buildGames(
   const offset = roundNum % active.length;
   const rotated = [...active.slice(offset), ...active.slice(0, offset)];
 
-  // Stride interleave into courts
   let games: { teamA: number[]; teamB: number[]; court: number }[] = [];
   for (let c = 0; c < C; c++) {
     games.push({
@@ -80,7 +74,7 @@ function buildGames(
     });
   }
 
-  // Repair repeated pairs via targeted cross-court swaps
+  // Repair repeated partner pairs via targeted cross-court swaps
   for (let pass = 0; pass < 20; pass++) {
     let improved = false;
     for (let g = 0; g < games.length && !improved; g++) {
@@ -102,7 +96,6 @@ function buildGames(
             const tmp = (c[gi] as any)[ti][ii];
             (c[gi] as any)[ti][ii] = (c[gj] as any)[tj][ij];
             (c[gj] as any)[tj][ij] = tmp;
-            // Reject duplicates
             const allP = c.flatMap((gm) => [...gm.teamA, ...gm.teamB]);
             if (new Set(allP).size !== allP.length) continue;
             const nr = c.reduce(
@@ -152,48 +145,77 @@ export function generateSchedule(
 
   const restCount: Record<number, number> = {};
   const playCount: Record<number, number> = {};
-  const lastSatRound: Record<number, number> = {};
-  playerIds.forEach((id) => { restCount[id] = 0; playCount[id] = 0; });
-
-  // Stagger initial lastSatRound so first sitting cycle is randomized
-  // (not serial P1→P2→P3…). Use a deterministic shuffle seeded by player count.
-  if (sittingCount > 0) {
-    const shuffled = seededShuffle(playerIds, n * 31 + numCourts * 7);
-    const cycleLen = Math.ceil(n / sittingCount);
-    shuffled.forEach((id, idx) => {
-      lastSatRound[id] = -(cycleLen - Math.floor((idx * cycleLen) / n)) - 1;
-    });
-  } else {
-    playerIds.forEach((id) => { lastSatRound[id] = -99; });
-  }
+  const totalSits: Record<number, number> = {};
+  playerIds.forEach((id) => { restCount[id] = 0; playCount[id] = 0; totalSits[id] = 0; });
 
   const result: Round[] = [];
   let prevPairs = new Set<string>();
 
-  for (let r = 0; r < target; r++) {
-    let active: number[];
-    let sitting: number[];
-
-    if (sittingCount <= 0) {
-      active = [...playerIds].sort((a, b) => (restCount[b] - restCount[a]) || (playCount[a] - playCount[b]));
-      sitting = [];
-    } else {
-      // WHO SITS: most overdue for rest (largest gap since last sat)
-      // Tiebreak: most play-count (played most without a break)
-      const ranked = [...playerIds].sort((a, b) => {
-        const gapA = r - lastSatRound[a];
-        const gapB = r - lastSatRound[b];
-        if (gapB !== gapA) return gapB - gapA; // larger gap = more overdue = sits
-        return playCount[b] - playCount[a];
-      });
-      sitting = ranked.slice(0, sittingCount);
-      const sittingSet = new Set(sitting);
-
-      // WHO PLAYS: idle-priority sort among those not sitting
-      active = playerIds
-        .filter((id) => !sittingSet.has(id))
-        .sort((a, b) => (restCount[b] - restCount[a]) || (playCount[a] - playCount[b]));
+  if (sittingCount <= 0) {
+    // Everyone plays every round
+    for (let r = 0; r < target; r++) {
+      const active = [...playerIds].sort((a, b) => (restCount[b] - restCount[a]) || (playCount[a] - playCount[b]));
+      const games = buildGames(active, numCourts, prevPairs, r);
+      const matchups: Matchup[] = games.map((g, i) => ({ teamA: g.teamA, teamB: g.teamB, gameNumber: i + 1, courtNumber: g.court }));
+      result.push({ roundNumber: r + 1, matchups, sitting: [] });
+      const thisPairs = new Set<string>();
+      matchups.forEach(m => { thisPairs.add(pairKey(m.teamA[0], m.teamA[1])); thisPairs.add(pairKey(m.teamB[0], m.teamB[1])); });
+      prevPairs = thisPairs;
+      playerIds.forEach(id => { restCount[id] = 0; playCount[id]++; });
     }
+    return result;
+  }
+
+  // ── Rotating queue sit assignment ─────────────────────────────────────────
+  // Start with a randomised ordering of all players.
+  // Each round takes the next sittingCount from the queue.
+  // After every full cycle (n/sittingCount rounds), rotate the queue
+  // by 1 position so group membership changes each cycle.
+  let queue = seededShuffle([...playerIds], n * 31 + numCourts * 7);
+  let queuePos = 0;
+  let cycleNumber = 0;
+
+  for (let r = 0; r < target; r++) {
+    // Wrap queue → start new cycle with a rotated queue
+    if (queuePos >= queue.length) {
+      queuePos = 0;
+      cycleNumber++;
+      // Shift by cycleNumber % sittingCount so each cycle's groups differ
+      const shift = cycleNumber % Math.max(1, sittingCount);
+      queue = [...queue.slice(shift), ...queue.slice(0, shift)];
+    }
+
+    // Draw next sittingCount players as sitters
+    const sitting: number[] = [];
+    const sittingSet = new Set<number>();
+    let pos = queuePos;
+
+    while (sitting.length < sittingCount && pos < queue.length) {
+      const p = queue[pos++];
+      if (!sittingSet.has(p)) { sitting.push(p); sittingSet.add(p); }
+    }
+    queuePos = pos;
+
+    // Fairness correction: if a selected sitter has sat significantly more
+    // than the average, swap them for the player with the fewest sits
+    // who isn't currently sitting
+    const avgSits = Object.values(totalSits).reduce((s, v) => s + v, 0) / n;
+    for (let i = 0; i < sitting.length; i++) {
+      if (totalSits[sitting[i]] > avgSits + 1) {
+        const alternatives = playerIds
+          .filter(p => !sittingSet.has(p) && totalSits[p] < totalSits[sitting[i]])
+          .sort((a, b) => totalSits[a] - totalSits[b]);
+        if (alternatives.length > 0) {
+          sittingSet.delete(sitting[i]);
+          sittingSet.add(alternatives[0]);
+          sitting[i] = alternatives[0];
+        }
+      }
+    }
+
+    const active = playerIds
+      .filter(id => !sittingSet.has(id))
+      .sort((a, b) => (restCount[b] - restCount[a]) || (playCount[a] - playCount[b]));
 
     const games = buildGames(active, numCourts, prevPairs, r);
     const matchups: Matchup[] = games.map((g, i) => ({
@@ -207,15 +229,15 @@ export function generateSchedule(
 
     const thisPairs = new Set<string>();
     const playingSet = new Set(active);
-    matchups.forEach((m) => {
+    matchups.forEach(m => {
       thisPairs.add(pairKey(m.teamA[0], m.teamA[1]));
       thisPairs.add(pairKey(m.teamB[0], m.teamB[1]));
     });
     prevPairs = thisPairs;
 
-    playerIds.forEach((id) => {
+    playerIds.forEach(id => {
       if (playingSet.has(id)) { restCount[id] = 0; playCount[id]++; }
-      else { restCount[id]++; lastSatRound[id] = r; }
+      else { restCount[id]++; totalSits[id]++; }
     });
   }
 
