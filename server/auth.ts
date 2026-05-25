@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { storage } from "./storage";
 
 const JWT_SECRET = process.env.JWT_SECRET || "bananasplit-dev-secret-change-in-prod";
 const JWT_EXPIRES = "30d"; // 30 day sessions
@@ -45,10 +46,16 @@ export function getUser(req: Request): AuthPayload {
   return (req as any).user as AuthPayload;
 }
 
-/** Middleware — requires isAdmin flag in the JWT */
+/** Middleware — requires isAdmin. Checks DB live so token age doesn't matter. */
 export function adminMiddleware(req: Request, res: Response, next: NextFunction) {
   const user = (req as any).user as AuthPayload;
-  if (!user?.isAdmin) {
+  if (!user?.userId) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  // Always do a live DB lookup — so granting/revoking admin takes effect immediately
+  // without requiring the user to sign out and back in.
+  const dbUser = storage.getUserById(user.userId);
+  if (!dbUser?.isAdmin) {
     return res.status(403).json({ error: "Admin access required" });
   }
   next();

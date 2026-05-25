@@ -87,21 +87,23 @@ export default function AdminPage() {
   const [searchUsers, setSearchUsers] = useState("");
   const [searchGroups, setSearchGroups] = useState("");
 
-  const { data: stats, isLoading: loadingStats, refetch: refetchStats } = useQuery<AdminStats>({
+  const { data: stats, isLoading: loadingStats, error: statsError, refetch: refetchStats } = useQuery<AdminStats>({
     queryKey: ["/api/admin/stats"],
     queryFn: () => apiFetch("/api/admin/stats"),
     refetchInterval: 30000, // auto-refresh every 30s
+    retry: false,
   });
 
   const { data: users = [], isLoading: loadingUsers, refetch: refetchUsers } = useQuery<AdminUser[]>({
     queryKey: ["/api/admin/users"],
     queryFn: () => apiFetch("/api/admin/users"),
-    retry: 2,
+    retry: false,
   });
 
   const { data: feedbackList = [] } = useQuery<Feedback[]>({
     queryKey: ["/api/admin/feedback"],
     queryFn: () => apiFetch("/api/admin/feedback"),
+    retry: false,
   });
 
   const { data: groups = [], isLoading: loadingGroups } = useQuery<AdminGroup[]>({
@@ -139,6 +141,28 @@ export default function AdminPage() {
     g.name.toLowerCase().includes(searchGroups.toLowerCase()) ||
     g.ownerName.toLowerCase().includes(searchGroups.toLowerCase())
   );
+
+  // Show a clear error if admin access is denied (e.g. old token before admin was granted)
+  if (statsError) {
+    const msg = (statsError as any)?.message || "";
+    const is403 = msg.includes("403") || msg.includes("Admin access");
+    return (
+      <AppShell title="Admin Panel" backHref="/">
+        <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
+          <Shield className="w-10 h-10 text-muted-foreground" />
+          <p className="font-semibold text-lg">{is403 ? "Access Denied" : "Something went wrong"}</p>
+          <p className="text-sm text-muted-foreground max-w-sm">
+            {is403
+              ? "Your account doesn't have admin access yet, or your session is outdated. Sign out and sign back in — if you were recently granted admin, that will refresh your access."
+              : msg}
+          </p>
+          <Button variant="outline" size="sm" onClick={() => refetchStats()} className="mt-2">
+            <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Retry
+          </Button>
+        </div>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell
