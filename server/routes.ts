@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
-import { insertGroupSchema, insertMemberSchema, insertSessionSchema, insertExpenseSchema, insertPaymentSchema } from "@shared/schema";
+import { insertGroupSchema, insertMemberSchema, insertSessionSchema, insertExpenseSchema, insertPaymentSchema, insertFeedbackSchema } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { signToken, authMiddleware, adminMiddleware, getUser } from "./auth";
@@ -435,6 +435,22 @@ export function registerRoutes(httpServer: Server, app: Express) {
   app.delete("/api/payments/:id", authMiddleware, (req, res) => {
     storage.deletePayment(Number(req.params.id));
     res.status(204).send();
+  });
+
+  // ── Feedback (public — no auth required) ────────────────────────────────────
+  app.post("/api/feedback", async (req, res) => {
+    const parsed = insertFeedbackSchema.safeParse({
+      ...req.body,
+      createdAt: new Date().toISOString(),
+    });
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+    const fb = storage.createFeedback(parsed.data);
+    res.status(201).json(fb);
+  });
+
+  app.get("/api/admin/feedback", authMiddleware, adminMiddleware, (req, res) => {
+    const allFeedback = storage.getAllFeedback();
+    res.json(allFeedback);
   });
 
   // ── Settle-up report ────────────────────────────────────────────────────────

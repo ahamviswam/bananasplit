@@ -2,7 +2,8 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import { eq, and } from "drizzle-orm";
 import {
-  users, groups, members, sessions, expenses, payments,
+  feedback, users, groups, members, sessions, expenses, payments,
+  type Feedback, type InsertFeedback,
   type User, type InsertUser,
   type Group, type InsertGroup,
   type Member, type InsertMember,
@@ -17,6 +18,15 @@ const db = drizzle(sqlite);
 
 // Run migrations — each is idempotent (safe to run multiple times)
 const migrations = [
+  `CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    type TEXT NOT NULL DEFAULT 'general',
+    rating INTEGER,
+    message TEXT NOT NULL,
+    email TEXT,
+    created_at TEXT NOT NULL
+  )`,
   "ALTER TABLE sessions ADD COLUMN court_fee_paid_by_member_id INTEGER",
   "ALTER TABLE sessions ADD COLUMN court_fee_co_payer_id INTEGER",
   "ALTER TABLE sessions ADD COLUMN payer_is_non_playing INTEGER NOT NULL DEFAULT 0", // legacy
@@ -98,6 +108,10 @@ sqlite.exec(`
 `);
 
 export interface IStorage {
+  // Feedback
+  createFeedback(data: InsertFeedback): Feedback;
+  getAllFeedback(): Feedback[];
+
   // Users
   getAllUsers(): User[];
   getUserByEmail(email: string): User | undefined;
@@ -145,6 +159,15 @@ export class Storage implements IStorage {
   // ── Users ────────────────────────────────────────────────────────────────────
   getAllUsers(): User[] {
     return db.select().from(users).all();
+  }
+
+  // ── Feedback ─────────────────────────────────────────────────────────────────
+  createFeedback(data: InsertFeedback): Feedback {
+    return db.insert(feedback).values(data).returning().get();
+  }
+
+  getAllFeedback(): Feedback[] {
+    return db.select().from(feedback).all();
   }
 
   getUserByEmail(email: string): User | undefined {

@@ -2,6 +2,21 @@ import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// ── Feedback ─────────────────────────────────────────────────────────────────────
+export const feedback = sqliteTable("feedback", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id"),  // null = anonymous
+  type: text("type").notNull().default("general"), // "bug" | "feature" | "general" | "praise"
+  rating: integer("rating"),   // 1-5 stars, optional
+  message: text("message").notNull(),
+  email: text("email"),         // optional contact email
+  createdAt: text("created_at").notNull(),
+});
+
+export const insertFeedbackSchema = createInsertSchema(feedback).omit({ id: true });
+export type InsertFeedback = z.infer<typeof insertFeedbackSchema>;
+export type Feedback = typeof feedback.$inferSelect;
+
 // ── Users ─────────────────────────────────────────────────────────────────────
 export const users = sqliteTable("users", {
   id: integer("id").primaryKey({ autoIncrement: true }),

@@ -13,6 +13,7 @@ import BalancesPage from "@/pages/BalancesPage";
 import ReportPage from "@/pages/ReportPage";
 import NotFound from "@/pages/not-found";
 import AdminPage from "@/pages/AdminPage";
+import { FeedbackButton } from "@/components/FeedbackButton";
 import { Skeleton } from "@/components/ui/skeleton";
 
 // Guard: only admins can access /admin
@@ -64,6 +65,7 @@ function AppRoutes() {
         <Route path="/admin" component={AdminGuard} />
         <Route component={NotFound} />
       </Switch>
+      <FeedbackButton />
     </Router>
   );
 }

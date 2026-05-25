@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Users, LayoutGrid, Calendar, DollarSign,
   Shield, ShieldOff, Trash2, RefreshCw, TrendingUp,
-  UserCheck, ChevronDown, ChevronUp, LogOut
+  UserCheck, MessageSquarePlus, Star
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, apiFetch, queryClient } from "@/lib/queryClient";
+import type { Feedback } from "@shared/schema";
 import { useAuth } from "@/components/AuthProvider";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
@@ -96,6 +97,11 @@ export default function AdminPage() {
     queryKey: ["/api/admin/users"],
     queryFn: () => apiFetch("/api/admin/users"),
     retry: 2,
+  });
+
+  const { data: feedbackList = [] } = useQuery<Feedback[]>({
+    queryKey: ["/api/admin/feedback"],
+    queryFn: () => apiFetch("/api/admin/feedback"),
   });
 
   const { data: groups = [], isLoading: loadingGroups } = useQuery<AdminGroup[]>({
@@ -185,6 +191,9 @@ export default function AdminPage() {
           </TabsTrigger>
           <TabsTrigger value="groups" className="flex-1" data-testid="tab-admin-groups">
             Groups ({groups.length})
+          </TabsTrigger>
+          <TabsTrigger value="feedback" className="flex-1" data-testid="tab-admin-feedback">
+            Feedback ({feedbackList.length})
           </TabsTrigger>
         </TabsList>
 
@@ -322,6 +331,48 @@ export default function AdminPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* ── Feedback Tab ── */}
+      <TabsContent value="feedback">
+        {feedbackList.length === 0 ? (
+          <div className="text-center py-10 text-muted-foreground text-sm">No feedback yet</div>
+        ) : (
+          <div className="space-y-2">
+            {[...feedbackList].reverse().map(fb => (
+              <Card key={fb.id} data-testid={`card-feedback-${fb.id}`}>
+                <CardContent className="pt-3 pb-3">
+                  <div className="flex items-start justify-between gap-3 mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                        fb.type === 'bug' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' :
+                        fb.type === 'feature' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' :
+                        fb.type === 'praise' ? 'bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400' :
+                        'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                      }`}>
+                        {fb.type}
+                      </span>
+                      {fb.rating && (
+                        <div className="flex items-center gap-0.5">
+                          {Array.from({length: fb.rating}).map((_,i) => (
+                            <Star key={i} className="w-3 h-3 fill-yellow-400 text-yellow-400" />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {format(new Date(fb.createdAt), "MMM d, yyyy")}
+                    </span>
+                  </div>
+                  <p className="text-sm">{fb.message}</p>
+                  {fb.email && (
+                    <p className="text-xs text-muted-foreground mt-1">{fb.email}</p>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </TabsContent>
 
       {/* Delete user dialog */}
       <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
