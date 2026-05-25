@@ -34,7 +34,7 @@ export function FeedbackButton() {
     onSuccess: () => {
       toast({
         title: "Thanks for your feedback!",
-        description: "We read every message and use it to improve BananaSplit.",
+        description: "We read every message and use it to improve PickleTab.",
       });
       setOpen(false);
       setMessage(""); setRating(0); setType("general"); setEmail("");
@@ -89,7 +89,7 @@ export function FeedbackButton() {
           {/* Header */}
           <div className="px-4 py-3" style={{ background: "linear-gradient(135deg, hsl(258 80% 58%), hsl(325 90% 58%))" }}>
             <h3 className="text-white font-bold text-sm">Share your feedback</h3>
-            <p className="text-white/70 text-xs mt-0.5">Help us make BananaSplit better</p>
+            <p className="text-white/70 text-xs mt-0.5">Help us make PickleTab better</p>
           </div>
 
           <form onSubmit={handleSubmit} className="p-4 space-y-4">

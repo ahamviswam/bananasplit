@@ -15,34 +15,33 @@ export function BananaSplitLogo({ size = 28, className }: { size?: number; class
   return (
     <svg
       width={size} height={size} viewBox="0 0 32 32" fill="none"
-      aria-label="BananaSplit logo" className="flex-shrink-0"
+      aria-label="PickleTab logo" className={`flex-shrink-0 ${className ?? ''}`}
     >
       <defs>
-        <linearGradient id="bananaGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#f9c74f"/>
-          <stop offset="100%" stopColor="#f4a261"/>
-        </linearGradient>
-        <linearGradient id="splitGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="#a78bfa"/>
-          <stop offset="100%" stopColor="#ec4899"/>
+        <linearGradient id="paddleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="1"/>
+          <stop offset="100%" stopColor="#e9d5ff" stopOpacity="1"/>
         </linearGradient>
       </defs>
-      <path
-        d="M6 22 C6 14, 10 6, 18 5 C24 4.5, 27 8, 26 14 C25 19, 21 23, 15 24 C10 25, 6 24, 6 22Z"
-        fill="url(#bananaGrad)"
-        stroke="hsl(43,80%,42%)"
-        strokeWidth="0.8"
-      />
-      <circle cx="13" cy="13" r="1.5" fill="#16a34a" opacity="0.75"/>
-      <circle cx="18" cy="11" r="1.5" fill="#16a34a" opacity="0.75"/>
-      <circle cx="16" cy="17" r="1.5" fill="#16a34a" opacity="0.75"/>
-      <path
-        d="M16 2 L16 30"
-        stroke="url(#splitGrad)"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeDasharray="3 2"
-      />
+      {/* Paddle head — rounded rectangle angled */}
+      <ellipse cx="14" cy="13" rx="8" ry="9" fill="url(#paddleGrad)" transform="rotate(-20 14 13)" />
+      {/* Paddle holes */}
+      <circle cx="11" cy="10" r="1.2" fill="#a855f7" opacity="0.7"/>
+      <circle cx="15" cy="9"  r="1.2" fill="#a855f7" opacity="0.7"/>
+      <circle cx="18" cy="11" r="1.2" fill="#a855f7" opacity="0.7"/>
+      <circle cx="12" cy="14" r="1.2" fill="#a855f7" opacity="0.7"/>
+      <circle cx="16" cy="14" r="1.2" fill="#a855f7" opacity="0.7"/>
+      <circle cx="13" cy="18" r="1.2" fill="#a855f7" opacity="0.7"/>
+      {/* Paddle handle */}
+      <rect x="15" y="20" width="4" height="9" rx="2" fill="white" opacity="0.9" transform="rotate(-20 17 24)" />
+      {/* Receipt curling off handle */}
+      <rect x="19" y="21" width="8" height="9" rx="1.5" fill="white" opacity="0.95" />
+      {/* Receipt lines */}
+      <line x1="21" y1="24" x2="25" y2="24" stroke="#c084fc" strokeWidth="1" strokeLinecap="round"/>
+      <line x1="21" y1="26" x2="25" y2="26" stroke="#c084fc" strokeWidth="1" strokeLinecap="round"/>
+      <line x1="21" y1="28" x2="23" y2="28" stroke="#c084fc" strokeWidth="1" strokeLinecap="round"/>
+      {/* Receipt zigzag bottom */}
+      <path d="M19 30 L20.5 29 L22 30 L23.5 29 L25 30 L26.5 29 L27 30" stroke="white" strokeWidth="0.8" fill="none" opacity="0.8"/>
     </svg>
   );
 }
@@ -84,7 +83,7 @@ export function AppShell({ title, backHref, actions, children }: AppShellProps) 
                 <BananaSplitLogo size={22} className="text-white" />
               </div>
               <span className="font-bold text-base tracking-tight text-gradient">
-                BananaSplit
+                PickleTab
               </span>
             </div>
           ) : (

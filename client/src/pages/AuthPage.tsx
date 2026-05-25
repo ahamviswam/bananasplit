@@ -78,7 +78,7 @@ export default function AuthPage() {
           >
             <BananaSplitLogo size={24} className="text-white" />
           </div>
-          <span className="font-bold text-lg tracking-tight text-foreground">BananaSplit</span>
+          <span className="font-bold text-lg tracking-tight text-foreground">PickleTab</span>
         </div>
         <Button
           variant="ghost"
@@ -98,7 +98,7 @@ export default function AuthPage() {
           {/* Tagline */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2">
-              {mode === "login" ? "Welcome back!" : "Join BananaSplit"}
+              {mode === "login" ? "Welcome back!" : "Join PickleTab"}
             </h1>
             <p className="text-muted-foreground text-sm">
               {mode === "login"
