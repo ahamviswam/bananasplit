@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PickleTab</string>
+    <string name="title_activity_main">PickleTab</string>
+    <string name="package_name">com.pickletab.app</string>
+    <string name="custom_url_scheme">com.pickletab.app</string>
+</resources>

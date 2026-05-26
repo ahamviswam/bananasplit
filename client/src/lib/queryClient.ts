@@ -2,12 +2,13 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { handleMemoryRequest } from "./memoryStore";
 
 // When running locally (dev server), use relative paths.
-// When deployed on GitHub Pages (no backend), point to Railway.
+// When deployed on GitHub Pages or in Android app (Capacitor), point to Railway.
 const IS_LOCAL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+const IS_CAPACITOR = window.location.protocol === "capacitor:" || window.location.protocol === "ionic:" || (window as any).Capacitor !== undefined;
 const RAILWAY_URL = "https://bananasplit-production.up.railway.app";
 const API_BASE = "__PORT_5000__".startsWith("__")
-  ? (IS_LOCAL ? "" : RAILWAY_URL)  // GitHub Pages → use Railway backend
-  : "__PORT_5000__";                // Deployed with real server → use proxy
+  ? (IS_LOCAL && !IS_CAPACITOR ? "" : RAILWAY_URL)  // GitHub Pages / Android → Railway
+  : "__PORT_5000__";                                  // Deployed with real server → use proxy
 
 // ── Backend detection (runs once, all callers share the same promise) ─────────
 let _backendCheckPromise: Promise<boolean> | null = null;
