@@ -134,10 +134,43 @@ function opponentCost(s: SchedState, a: number, b: number): number {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Build one round's games using least-played greedy selection
+// Build one round's games — multi-candidate optimiser
+//
+// Instead of a single greedy pass (which can be forced into a back-to-back
+// repeat early and never recover), we generate MANY complete candidate rounds
+// from the same playing set, score each by a recency-weighted cost, and keep
+// the best. Across hundreds of randomised tries the optimiser reliably finds a
+// round with no recent partner/opponent repeat whenever one exists.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildGames(
+  s: SchedState,
+  playing: number[],
+  numCourts: number,
+  rng: () => number
+): { teamA: number[]; teamB: number[]; court: number }[] {
+  let best: { teamA: number[]; teamB: number[]; court: number }[] | null = null;
+  let bestCost = Infinity;
+
+  // Many randomised candidates; stop early once a candidate has no recent
+  // (windowed) partner/opponent repeat — i.e. cost below one RECENT_PENALTY unit.
+  const ATTEMPTS = 400;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const cand = greedyCandidate(s, playing, numCourts, rng);
+    repairRound(s, cand, rng);
+    const cost = roundCost(s, cand);
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = cand;
+      if (bestCost < RECENT_PENALTY) break;
+    }
+  }
+
+  return best ?? greedyCandidate(s, playing, numCourts, rng);
+}
+
+/** One randomised greedy attempt at filling all courts for this round. */
+function greedyCandidate(
   s: SchedState,
   playing: number[],
   numCourts: number,
