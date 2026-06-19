@@ -79,10 +79,18 @@ interface SchedState {
   round: number;                              // current round index being built
 }
 
-// How many recent rounds a repeat partnership/opponent is heavily penalised for.
-// gap of 1 = back-to-back, 2 = one round apart, etc.
-const RECENT_WINDOW = 3;
-const RECENT_PENALTY = 1000; // dominates lifetime counts so recent repeats are avoided first
+// How many recent rounds a repeat partnership/opponent is penalised for.
+// gap of 1 = back-to-back, 2 = one round apart, etc. A wide window means the
+// optimiser keeps pushing repeat partners as far apart as the roster allows,
+// not just past the immediate next couple of rounds.
+// Partners: we strongly want a comfortable gap before any repeat. Penalise
+// repeats up to PARTNER_TARGET_GAP rounds apart — beyond that gap the spacing is
+// "good enough" and we let opponent spacing take over, which keeps opponent
+// back-to-backs low in dense rosters instead of trading them away for an even
+// wider (but unnoticeable) partner gap.
+const PARTNER_TARGET_GAP = 7;   // partners: aim for at least ~7 rounds between repeats
+const OPP_RECENT_WINDOW = 6;    // opponents: window for opponent spacing
+const RECENT_PENALTY = 1000;    // dominates lifetime counts so recent repeats are avoided first
 
 function initState(playerIds: number[]): SchedState {
   const s: SchedState = {
@@ -116,7 +124,13 @@ function partnerCost(s: SchedState, a: number, b: number): number {
   let recent = 0;
   if (last !== undefined) {
     const gap = s.round - last; // 1 = previous round
-    if (gap <= RECENT_WINDOW) recent = (RECENT_WINDOW - gap + 1) * RECENT_PENALTY;
+    if (gap <= PARTNER_TARGET_GAP) {
+      // Quadratic decay: a tight gap is penalised FAR more than a wide one, so
+      // the optimiser always prefers the largest possible spacing between
+      // repeat partners up to the target gap.
+      const closeness = PARTNER_TARGET_GAP - gap + 1; // 1..PARTNER_TARGET_GAP
+      recent = closeness * closeness * RECENT_PENALTY;
+    }
   }
   return base + recent;
 }
@@ -128,7 +142,10 @@ function opponentCost(s: SchedState, a: number, b: number): number {
   let recent = 0;
   if (last !== undefined) {
     const gap = s.round - last;
-    if (gap <= RECENT_WINDOW) recent = (RECENT_WINDOW - gap + 1) * RECENT_PENALTY;
+    if (gap <= OPP_RECENT_WINDOW) {
+      const closeness = OPP_RECENT_WINDOW - gap + 1;
+      recent = closeness * closeness * RECENT_PENALTY;
+    }
   }
   return base + recent;
 }
@@ -152,9 +169,20 @@ function buildGames(
   let best: { teamA: number[]; teamB: number[]; court: number }[] | null = null;
   let bestCost = Infinity;
 
-  // Many randomised candidates; stop early once a candidate has no recent
-  // (windowed) partner/opponent repeat — i.e. cost below one RECENT_PENALTY unit.
-  const ATTEMPTS = 400;
+  // Many randomised candidates; keep the lowest-cost one. With the quadratic
+  // recency penalty, lower cost == wider spacing between any repeat partners,
+  // so we DON'T early-stop at the first "no back-to-back" candidate — we keep
+  // searching to push repeats as far apart as the roster physically allows.
+  // We only break early when a candidate is completely clean of any recent
+  // partner OR opponent repeat within the windows (cost below one penalty unit).
+  // Early-stop threshold: the roundCost packs partner tiers in the bands
+  // >= 1_000_000 (t1 = back-to-back at 1e9, t3 = close partner repeat at 1e6).
+  // A cost below that means this round has NO partner repeat within the target
+  // window at all — the thing players care most about — so it's safe to stop
+  // searching. Lower bands (opponent spacing, lifetime balance) are still
+  // minimised across the candidates we do try.
+  const PARTNER_CLEAN = 1_000_000;
+  const ATTEMPTS = 250;
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const cand = greedyCandidate(s, playing, numCourts, rng);
     repairRound(s, cand, rng);
@@ -162,8 +190,8 @@ function buildGames(
     if (cost < bestCost) {
       bestCost = cost;
       best = cand;
-      if (bestCost < RECENT_PENALTY) break;
     }
+    if (bestCost < PARTNER_CLEAN) break;
   }
 
   return best ?? greedyCandidate(s, playing, numCourts, rng);
@@ -223,19 +251,60 @@ function greedyCandidate(
 
 /**
  * Repair pass: after greedy construction, look for any team whose two players
- * are a recently-repeated pair (within RECENT_WINDOW). When found, try swapping
+ * are a recently-repeated pair (within the recency windows). When found, try swapping
  * one of them with a player from another court so the total recent-repeat +
  * lifetime cost across the round goes down. Only helps when 2+ courts exist;
  * a no-op for single-court rounds (nothing to swap with).
  */
 function roundCost(s: SchedState, games: { teamA: number[]; teamB: number[]; court: number }[]): number {
-  let total = 0;
+  // Lexicographic scoring packed into one number. Each tier uses a magnitude
+  // band large enough that any amount of a lower tier can never outweigh a
+  // single unit of a higher tier. Priority order (most → least important):
+  //   T1  partner back-to-back (gap == 1)   — never allowed
+  //   T3  partner spacing (smaller gap = worse) — maximise distance between
+  //        repeat PARTNERS first, since that's what players notice most
+  //   T2  opponent back-to-back (gap == 1)  — avoided next
+  //   T4  opponent spacing
+  //   T5  lifetime partner/opponent balance
+  let t1 = 0, t2 = 0, t3 = 0, t4 = 0, t5 = 0;
+
+  const pairGap = (lastRound: number | undefined) =>
+    lastRound === undefined ? Infinity : s.round - lastRound;
+
   for (const g of games) {
-    total += partnerCost(s, g.teamA[0], g.teamA[1]);
-    total += partnerCost(s, g.teamB[0], g.teamB[1]);
-    for (const a of g.teamA) for (const b of g.teamB) total += opponentCost(s, a, b);
+    for (const team of [g.teamA, g.teamB]) {
+      const k = pairKey(team[0], team[1]);
+      const gap = pairGap(s.lastPartnerRound[k]);
+      if (gap === 1) t1 += 1;
+      // closeness within the target window contributes to spacing (quadratic).
+      if (gap <= PARTNER_TARGET_GAP) {
+        const closeness = PARTNER_TARGET_GAP - gap + 1; // 1..PARTNER_TARGET_GAP
+        t3 += closeness * closeness;
+      }
+      t5 += s.partnerCount[k] || 0;
+    }
+    for (const a of g.teamA) for (const b of g.teamB) {
+      const k = pairKey(a, b);
+      const gap = pairGap(s.lastOpponentRound[k]);
+      if (gap === 1) t2 += 1;
+      if (gap <= OPP_RECENT_WINDOW) {
+        const closeness = OPP_RECENT_WINDOW - gap + 1;
+        t4 += closeness * closeness;
+      }
+      t5 += s.opponentCount[k] || 0;
+    }
   }
-  return total;
+
+  // Pack tiers into disjoint magnitude bands. Order of significance:
+  // partner back-to-back (t1) > partner spacing (t3) > opponent back-to-back
+  // (t2) > opponent spacing (t4) > lifetime balance (t5).
+  return (
+    t1 * 1_000_000_000 +
+    t3 * 1_000_000 +
+    t2 * 10_000 +
+    t4 * 100 +
+    t5
+  );
 }
 
 function repairRound(
@@ -438,16 +507,57 @@ export function generateSchedule(
   const target =
     totalRounds ?? Math.min(30, Math.max(12, n * 2));
 
-  const s = initState(playerIds);
-  const seed = n * 1000003 + numCourts * 9176 + gamesPerRound * 31 + 7;
-  const rng = makeRng(seed);
+  // Seed off the EFFECTIVE games-per-round (not the requested court count) so
+  // that asking for more courts than the roster can fill (e.g. 5 players on 3
+  // courts) collapses to the exact same well-spaced schedule as the achievable
+  // configuration.
+  const baseSeed = n * 1000003 + gamesPerRound * 9176 + 7;
 
+  // Build the full schedule several times from different seeds and keep the
+  // best one. The single-pass build can occasionally land on a seed-dependent
+  // bad local optimum (notably on 1-court rosters, which have no cross-court
+  // repair to fall back on). Trying a handful of seeds and scoring the whole
+  // schedule makes the spacing consistently good for EVERY player/court combo,
+  // not just lucky ones.
+  let bestSchedule: Round[] | null = null;
+  let bestScore = Infinity;
+  const SEED_TRIES = 6;
+  for (let t = 0; t < SEED_TRIES; t++) {
+    const candidate = buildScheduleOnce(
+      playerIds,
+      gamesPerRound,
+      sittingCount,
+      target,
+      baseSeed + t * 7919
+    );
+    const score = scheduleScore(candidate);
+    if (score < bestScore) {
+      bestScore = score;
+      bestSchedule = candidate;
+    }
+  }
+
+  return bestSchedule ?? [];
+}
+
+/** Build one complete schedule from a given seed. */
+function buildScheduleOnce(
+  playerIds: number[],
+  gamesPerRound: number,
+  sittingCount: number,
+  target: number,
+  seed: number
+): Round[] {
+  const s = initState(playerIds);
+  const rng = makeRng(seed);
   const result: Round[] = [];
 
   for (let r = 0; r < target; r++) {
     s.round = r + 1; // 1-based so "last round" gap math works (gap 1 = previous round)
     const { playing, sitting } = chooseSitting(s, playerIds, sittingCount, rng);
-    const games = buildGames(s, playing, numCourts, rng);
+    // Use the clamped court count so the optimiser never tries to fill more
+    // courts than the playing pool supports.
+    const games = buildGames(s, playing, gamesPerRound, rng);
 
     repairRound(s, games, rng);
 
@@ -463,6 +573,55 @@ export function generateSchedule(
   }
 
   return result;
+}
+
+/**
+ * Score a complete schedule so we can compare seeds. Lower is better.
+ * Priority (lexicographic): no partner back-to-backs, then largest minimum
+ * partner-repeat gap, then fewest opponent back-to-backs, then fewest total
+ * close partner repeats.
+ */
+function scheduleScore(schedule: Round[]): number {
+  const pk = (a: number, b: number) => [a, b].sort((x, y) => x - y).join('-');
+  const lastPartner: Record<string, number> = {};
+  const lastOpp: Record<string, number> = {};
+  let partnerB2B = 0;
+  let oppB2B = 0;
+  let minPartnerGap = Infinity;
+  let closePartnerRepeats = 0; // partner repeats within PARTNER_TARGET_GAP
+
+  schedule.forEach((round, idx) => {
+    const rn = idx + 1;
+    for (const m of round.matchups) {
+      for (const team of [m.teamA, m.teamB]) {
+        const k = pk(team[0], team[1]);
+        if (lastPartner[k] !== undefined) {
+          const gap = rn - lastPartner[k];
+          if (gap === 1) partnerB2B++;
+          if (gap < minPartnerGap) minPartnerGap = gap;
+          if (gap <= PARTNER_TARGET_GAP) closePartnerRepeats++;
+        }
+        lastPartner[k] = rn;
+      }
+      for (const a of m.teamA) for (const b of m.teamB) {
+        const k = pk(a, b);
+        if (lastOpp[k] !== undefined && rn - lastOpp[k] === 1) oppB2B++;
+        lastOpp[k] = rn;
+      }
+    }
+  });
+
+  // Larger minimum gap is better, so penalise small gaps. Cap so an all-unique
+  // schedule (no repeats at all) scores best.
+  const gapPenalty =
+    minPartnerGap === Infinity ? 0 : Math.max(0, PARTNER_TARGET_GAP + 1 - minPartnerGap);
+
+  return (
+    partnerB2B * 1_000_000_000 +
+    gapPenalty * 1_000_000 +
+    oppB2B * 1_000 +
+    closePartnerRepeats
+  );
 }
 
 function generateSinglesSchedule(
