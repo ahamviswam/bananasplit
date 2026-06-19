@@ -1,6 +1,8 @@
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import { eq, and } from "drizzle-orm";
+import { mkdirSync } from "fs";
+import { dirname } from "path";
 import {
   feedback, users, groups, members, sessions, expenses, payments,
   type Feedback, type InsertFeedback,
@@ -13,6 +15,18 @@ import {
 } from "@shared/schema";
 
 const dbPath = process.env.DATABASE_PATH || "bananasplit.db";
+// Ensure the parent directory exists before opening the DB. On hosts like
+// Railway, DATABASE_PATH often points at a mounted volume (e.g. /data/app.db);
+// if that directory isn't present yet, better-sqlite3 throws "Cannot open
+// database because the directory does not exist" and the whole process crashes
+// at startup. Creating it first makes the app boot regardless of how the
+// volume / path is configured.
+try {
+  const dir = dirname(dbPath);
+  if (dir && dir !== ".") mkdirSync(dir, { recursive: true });
+} catch (err) {
+  console.error(`[storage] could not create DB directory for ${dbPath}:`, err);
+}
 const sqlite = new Database(dbPath);
 const db = drizzle(sqlite);
 
