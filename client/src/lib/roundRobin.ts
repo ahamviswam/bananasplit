@@ -1,21 +1,24 @@
 /**
- * PickleTab Fair Scheduler — v3
+ * PickleTab Fair Scheduler — v4 (full-history greedy)
  *
- * Guarantees every round:
- *   ✅ No two players are partners two rounds in a row
- *   ✅ The same 4 players never share a court two rounds in a row
- *   ✅ Sitting is perfectly even — sit counts differ by at most 1
- *   ✅ No consecutive sitting group repeats
- *   ✅ Sitting group membership rotates each cycle — different combos every time
+ * WHY v4: v3 only remembered the single previous round (`prevPairs`), so the
+ * same pair would happily reappear two or three rounds later. v4 tracks the
+ * *cumulative* history of how often every pair has partnered and how often
+ * every pair has faced each other, then always builds each game by picking the
+ * partner / opponents you've shared the court with the LEAST so far. This is the
+ * same approach used by the reference generator (pkbl.netlify.app) and produces
+ * much better variety for 8–12 player sessions.
  *
- * Sitting algorithm — rotating queue with per-cycle shift:
- *   1. Build a randomised sit-queue (seeded by player count + courts).
- *   2. Each round takes the next sittingCount players from the queue.
- *   3. When the queue wraps (one full cycle done), shift it by 1 position.
- *      This changes group membership every cycle, so the same 4 people
- *      don't keep sitting together indefinitely.
- *   4. A fairness check prevents any player from sitting significantly
- *      more than the average before others get their turn.
+ * Guarantees / behaviour each round:
+ *   ✅ Partners are chosen by fewest lifetime partnerships (least-repeated first)
+ *   ✅ Opponents are chosen by fewest lifetime head-to-head meetings
+ *   ✅ Sitting is even — driven by consecutive sit-outs, then total plays
+ *   ✅ Nobody sits twice in a row while someone else hasn't sat at all
+ *   ✅ Deterministic for a given (players, courts) input so rounds are stable
+ *      across re-renders, but well-mixed via a seeded shuffle.
+ *
+ * The exported API (Matchup, Round, generateSchedule, getRound,
+ * getMatchupsForRound) is unchanged so the rest of the app keeps working.
  */
 
 export interface Matchup {
@@ -39,88 +42,344 @@ function pairKey(a: number, b: number): string {
   return a < b ? `${a},${b}` : `${b},${a}`;
 }
 
-/** Deterministic Fisher-Yates shuffle seeded by a number */
-function seededShuffle<T>(arr: T[], seed: number): T[] {
+/** Deterministic PRNG (mulberry32) so a given session always schedules the same way. */
+function makeRng(seed: number): () => number {
+  let s = seed >>> 0;
+  return function () {
+    s |= 0;
+    s = (s + 0x6d2b79f5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Fisher-Yates shuffle using a provided RNG (so tie-breaks are fair but reproducible). */
+function shuffle<T>(arr: T[], rng: () => number): T[] {
   const a = [...arr];
-  let s = seed;
   for (let i = a.length - 1; i > 0; i--) {
-    s = (s * 1664525 + 1013904223) & 0xffffffff;
-    const j = Math.abs(s) % (i + 1);
+    const j = Math.floor(rng() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Build one round's games: stride interleave + swap repair
+// Mutable scheduling state (cumulative history across all rounds)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface SchedState {
+  playCount: Record<number, number>;        // games played
+  consecutiveSitOut: Record<number, number>; // sit-outs in a row right now
+  totalSitOut: Record<number, number>;       // lifetime sit-outs
+  partnerCount: Record<string, number>;       // pairKey -> times partnered
+  opponentCount: Record<string, number>;      // pairKey -> times faced as opponents
+  lastPartnerRound: Record<string, number>;   // pairKey -> last round index they partnered
+  lastOpponentRound: Record<string, number>;  // pairKey -> last round index they were opponents
+  round: number;                              // current round index being built
+}
+
+// How many recent rounds a repeat partnership/opponent is heavily penalised for.
+// gap of 1 = back-to-back, 2 = one round apart, etc.
+const RECENT_WINDOW = 3;
+const RECENT_PENALTY = 1000; // dominates lifetime counts so recent repeats are avoided first
+
+function initState(playerIds: number[]): SchedState {
+  const s: SchedState = {
+    playCount: {},
+    consecutiveSitOut: {},
+    totalSitOut: {},
+    partnerCount: {},
+    opponentCount: {},
+    lastPartnerRound: {},
+    lastOpponentRound: {},
+    round: 0,
+  };
+  playerIds.forEach((id) => {
+    s.playCount[id] = 0;
+    s.consecutiveSitOut[id] = 0;
+    s.totalSitOut[id] = 0;
+  });
+  return s;
+}
+
+/**
+ * Partner cost = lifetime partnerships + a big penalty that decays over the last
+ * few rounds. A pair that partnered last round costs ~RECENT_PENALTY*3, two
+ * rounds ago ~RECENT_PENALTY*2, etc. — so the picker exhausts every fresher
+ * option before ever repeating a recent partner.
+ */
+function partnerCost(s: SchedState, a: number, b: number): number {
+  const k = pairKey(a, b);
+  const base = s.partnerCount[k] || 0;
+  const last = s.lastPartnerRound[k];
+  let recent = 0;
+  if (last !== undefined) {
+    const gap = s.round - last; // 1 = previous round
+    if (gap <= RECENT_WINDOW) recent = (RECENT_WINDOW - gap + 1) * RECENT_PENALTY;
+  }
+  return base + recent;
+}
+
+function opponentCost(s: SchedState, a: number, b: number): number {
+  const k = pairKey(a, b);
+  const base = s.opponentCount[k] || 0;
+  const last = s.lastOpponentRound[k];
+  let recent = 0;
+  if (last !== undefined) {
+    const gap = s.round - last;
+    if (gap <= RECENT_WINDOW) recent = (RECENT_WINDOW - gap + 1) * RECENT_PENALTY;
+  }
+  return base + recent;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Build one round's games using least-played greedy selection
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildGames(
-  active: number[],
+  s: SchedState,
+  playing: number[],
   numCourts: number,
-  prevPairs: Set<string>,
-  roundNum: number
+  rng: () => number
 ): { teamA: number[]; teamB: number[]; court: number }[] {
-  const C = numCourts;
-  const offset = roundNum % active.length;
-  const rotated = [...active.slice(offset), ...active.slice(0, offset)];
+  // Pool of players to place, randomised so equal-history ties resolve fairly.
+  const pool = shuffle(playing, rng);
+  const games: { teamA: number[]; teamB: number[]; court: number }[] = [];
 
-  let games: { teamA: number[]; teamB: number[]; court: number }[] = [];
-  for (let c = 0; c < C; c++) {
-    games.push({
-      teamA: [rotated[c], rotated[c + C]],
-      teamB: [rotated[c + 2 * C], rotated[c + 3 * C]],
-      court: c + 1,
+  const courtsToFill = Math.min(numCourts, Math.floor(pool.length / 4));
+
+  for (let court = 0; court < courtsToFill && pool.length >= 4; court++) {
+    // 1) First player: take the one who has played the fewest games (then random).
+    pool.sort((a, b) => (s.playCount[a] - s.playCount[b]) || (rng() - 0.5));
+    const p1 = pool.shift()!;
+
+    // 2) Partner: lowest partner cost with p1 (lifetime + recent-repeat penalty).
+    pool.sort((a, b) => {
+      const d = partnerCost(s, p1, a) - partnerCost(s, p1, b);
+      if (d !== 0) return d;
+      return (s.playCount[a] - s.playCount[b]) || (rng() - 0.5);
     });
+    const p2 = pool.shift()!;
+
+    // 3) First opponent: lowest combined opponent cost vs the p1/p2 team.
+    pool.sort((a, b) => {
+      const av = opponentCost(s, p1, a) + opponentCost(s, p2, a);
+      const bv = opponentCost(s, p1, b) + opponentCost(s, p2, b);
+      if (av !== bv) return av - bv;
+      return (s.playCount[a] - s.playCount[b]) || (rng() - 0.5);
+    });
+    const p3 = pool.shift()!;
+
+    // 4) Second opponent: lowest partner cost with p3, then lowest H2H vs team A.
+    pool.sort((a, b) => {
+      const d = partnerCost(s, p3, a) - partnerCost(s, p3, b);
+      if (d !== 0) return d;
+      const av = opponentCost(s, p1, a) + opponentCost(s, p2, a);
+      const bv = opponentCost(s, p1, b) + opponentCost(s, p2, b);
+      if (av !== bv) return av - bv;
+      return (s.playCount[a] - s.playCount[b]) || (rng() - 0.5);
+    });
+    const p4 = pool.shift()!;
+
+    games.push({ teamA: [p1, p2], teamB: [p3, p4], court: court + 1 });
   }
 
-  // Repair repeated partner pairs via targeted cross-court swaps
-  for (let pass = 0; pass < 20; pass++) {
-    let improved = false;
-    for (let g = 0; g < games.length && !improved; g++) {
-      const hasRepeat =
-        prevPairs.has(pairKey(games[g].teamA[0], games[g].teamA[1])) ||
-        prevPairs.has(pairKey(games[g].teamB[0], games[g].teamB[1]));
-      if (!hasRepeat) continue;
+  return games;
+}
 
-      for (let g2 = 0; g2 < games.length && !improved; g2++) {
-        if (g2 === g) continue;
-        const pos: Array<[number, 'teamA' | 'teamB', number]> = [
-          [g, 'teamA', 0], [g, 'teamA', 1], [g, 'teamB', 0], [g, 'teamB', 1],
-          [g2, 'teamA', 0], [g2, 'teamA', 1], [g2, 'teamB', 0], [g2, 'teamB', 1],
-        ];
-        for (let i = 0; i < 4 && !improved; i++) {
-          for (let j = 4; j < 8 && !improved; j++) {
-            const c = games.map((gm) => ({ ...gm, teamA: [...gm.teamA], teamB: [...gm.teamB] }));
-            const [gi, ti, ii] = pos[i], [gj, tj, ij] = pos[j];
-            const tmp = (c[gi] as any)[ti][ii];
-            (c[gi] as any)[ti][ii] = (c[gj] as any)[tj][ij];
-            (c[gj] as any)[tj][ij] = tmp;
-            const allP = c.flatMap((gm) => [...gm.teamA, ...gm.teamB]);
-            if (new Set(allP).size !== allP.length) continue;
-            const nr = c.reduce(
-              (s, gm) =>
-                s +
-                (prevPairs.has(pairKey(gm.teamA[0], gm.teamA[1])) ? 1 : 0) +
-                (prevPairs.has(pairKey(gm.teamB[0], gm.teamB[1])) ? 1 : 0),
-              0
-            );
-            const or = games.reduce(
-              (s, gm) =>
-                s +
-                (prevPairs.has(pairKey(gm.teamA[0], gm.teamA[1])) ? 1 : 0) +
-                (prevPairs.has(pairKey(gm.teamB[0], gm.teamB[1])) ? 1 : 0),
-              0
-            );
-            if (nr < or) { games = c; improved = true; }
-          }
+/**
+ * Repair pass: after greedy construction, look for any team whose two players
+ * are a recently-repeated pair (within RECENT_WINDOW). When found, try swapping
+ * one of them with a player from another court so the total recent-repeat +
+ * lifetime cost across the round goes down. Only helps when 2+ courts exist;
+ * a no-op for single-court rounds (nothing to swap with).
+ */
+function roundCost(s: SchedState, games: { teamA: number[]; teamB: number[]; court: number }[]): number {
+  let total = 0;
+  for (const g of games) {
+    total += partnerCost(s, g.teamA[0], g.teamA[1]);
+    total += partnerCost(s, g.teamB[0], g.teamB[1]);
+    for (const a of g.teamA) for (const b of g.teamB) total += opponentCost(s, a, b);
+  }
+  return total;
+}
+
+function repairRound(
+  s: SchedState,
+  games: { teamA: number[]; teamB: number[]; court: number }[],
+  _rng: () => number
+): void {
+  if (games.length < 2) return; // nothing to swap against on a single court
+
+  // All swappable slots across all games.
+  type Slot = { g: number; team: 'teamA' | 'teamB'; idx: number };
+  const slots: Slot[] = [];
+  games.forEach((g, gi) => {
+    g.teamA.forEach((_, i) => slots.push({ g: gi, team: 'teamA', idx: i }));
+    g.teamB.forEach((_, i) => slots.push({ g: gi, team: 'teamB', idx: i }));
+  });
+
+  for (let pass = 0; pass < 30; pass++) {
+    let improved = false;
+    for (let i = 0; i < slots.length && !improved; i++) {
+      for (let j = i + 1; j < slots.length && !improved; j++) {
+        const A = slots[i], B = slots[j];
+        if (A.g === B.g) continue; // swapping within the same game is pointless here
+        const before = roundCost(s, games);
+        const ga = games[A.g], gb = games[B.g];
+        const tmp = ga[A.team][A.idx];
+        ga[A.team][A.idx] = gb[B.team][B.idx];
+        gb[B.team][B.idx] = tmp;
+        const after = roundCost(s, games);
+        if (after < before) {
+          improved = true; // keep the swap, restart scan
+        } else {
+          // revert
+          const t2 = ga[A.team][A.idx];
+          ga[A.team][A.idx] = gb[B.team][B.idx];
+          gb[B.team][B.idx] = t2;
         }
       }
     }
     if (!improved) break;
   }
+}
 
-  return games;
+function commitRound(
+  s: SchedState,
+  games: { teamA: number[]; teamB: number[]; court: number }[],
+  sitting: number[]
+): void {
+  const played = new Set<number>();
+  games.forEach((g) => {
+    [...g.teamA, ...g.teamB].forEach((p) => {
+      played.add(p);
+      s.playCount[p] = (s.playCount[p] || 0) + 1;
+    });
+    // partner counts + last-partnered round
+    const pa = pairKey(g.teamA[0], g.teamA[1]);
+    const pb = pairKey(g.teamB[0], g.teamB[1]);
+    s.partnerCount[pa] = (s.partnerCount[pa] || 0) + 1;
+    s.partnerCount[pb] = (s.partnerCount[pb] || 0) + 1;
+    s.lastPartnerRound[pa] = s.round;
+    s.lastPartnerRound[pb] = s.round;
+    // opponent counts + last-faced round (every A vs every B)
+    g.teamA.forEach((a) =>
+      g.teamB.forEach((b) => {
+        const k = pairKey(a, b);
+        s.opponentCount[k] = (s.opponentCount[k] || 0) + 1;
+        s.lastOpponentRound[k] = s.round;
+      })
+    );
+  });
+
+  // sit / play streak bookkeeping
+  played.forEach((p) => {
+    s.consecutiveSitOut[p] = 0;
+  });
+  sitting.forEach((p) => {
+    s.consecutiveSitOut[p] = (s.consecutiveSitOut[p] || 0) + 1;
+    s.totalSitOut[p] = (s.totalSitOut[p] || 0) + 1;
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Choose who sits this round (fairest first to play)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function chooseSitting(
+  s: SchedState,
+  playerIds: number[],
+  sittingCount: number,
+  rng: () => number
+): { playing: number[]; sitting: number[] } {
+  if (sittingCount <= 0) return { playing: [...playerIds], sitting: [] };
+
+  // Sort so the players MOST owed a game come first (they play).
+  const ordered = shuffle(playerIds, rng).sort((a, b) => {
+    // 1) Whoever has sat out more in a row plays first.
+    const c = (s.consecutiveSitOut[b] || 0) - (s.consecutiveSitOut[a] || 0);
+    if (c !== 0) return c;
+    // 2) Whoever has played fewer total games plays first.
+    const p = (s.playCount[a] || 0) - (s.playCount[b] || 0);
+    if (p !== 0) return p;
+    // 3) Whoever has sat out fewer times total should sit now.
+    const t = (s.totalSitOut[a] || 0) - (s.totalSitOut[b] || 0);
+    if (t !== 0) return t;
+    return 0;
+  });
+
+  // `ordered` is sorted most-owed-a-game first. The clear cut is between the
+  // players who MUST play (top, strictly higher priority) and those who MUST
+  // sit (bottom). Players in the middle with EQUAL fairness priority form a
+  // "bubble" we can choose freely from — use that freedom to avoid putting two
+  // recent partners on court together (the single-court repeat problem).
+  const needPlaying = ordered.length - sittingCount;
+
+  // Group by identical fairness key so we only reorder true ties.
+  const keyOf = (id: number) =>
+    `${s.consecutiveSitOut[id] || 0}|${s.playCount[id] || 0}|${s.totalSitOut[id] || 0}`;
+
+  // Find the tie-group straddling the play/sit boundary.
+  let lo = needPlaying;
+  while (lo > 0 && keyOf(ordered[lo - 1]) === keyOf(ordered[needPlaying])) lo--;
+  let hi = needPlaying;
+  while (hi < ordered.length && keyOf(ordered[hi]) === keyOf(ordered[needPlaying])) hi++;
+
+  const lockedPlaying = ordered.slice(0, lo);
+  const bubble = ordered.slice(lo, hi);
+  const lockedSitting = ordered.slice(hi);
+  const bubbleSlots = needPlaying - lockedPlaying.length; // how many from bubble play
+
+  let playing: number[];
+  let sitting: number[];
+
+  if (bubble.length > 1 && bubbleSlots > 0 && bubbleSlots < bubble.length) {
+    // Choose which bubble members play so the resulting playing set has the
+    // lowest summed pairwise partner cost (favours fresh combinations).
+    const best = chooseBubble(s, lockedPlaying, bubble, bubbleSlots);
+    playing = [...lockedPlaying, ...best.play];
+    sitting = [...best.sit, ...lockedSitting];
+  } else {
+    playing = ordered.slice(0, needPlaying);
+    sitting = ordered.slice(needPlaying);
+  }
+
+  return { playing, sitting };
+}
+
+/**
+ * From a tie-group `bubble`, pick `slots` players to join `locked` on court such
+ * that the total recent-partner cost among the on-court set is minimised. Tries
+ * all combinations (bubble is small — a single fairness tie-group), so this is
+ * cheap. Returns the chosen play/sit split.
+ */
+function chooseBubble(
+  s: SchedState,
+  locked: number[],
+  bubble: number[],
+  slots: number
+): { play: number[]; sit: number[] } {
+  const combos: number[][] = [];
+  const pick = (start: number, acc: number[]) => {
+    if (acc.length === slots) { combos.push([...acc]); return; }
+    for (let i = start; i < bubble.length; i++) { acc.push(bubble[i]); pick(i + 1, acc); acc.pop(); }
+  };
+  pick(0, []);
+
+  let bestPlay = combos[0];
+  let bestCost = Infinity;
+  for (const combo of combos) {
+    const onCourt = [...locked, ...combo];
+    let cost = 0;
+    for (let i = 0; i < onCourt.length; i++)
+      for (let j = i + 1; j < onCourt.length; j++)
+        cost += partnerCost(s, onCourt[i], onCourt[j]);
+    if (cost < bestCost) { bestCost = cost; bestPlay = combo; }
+  }
+  const sit = bubble.filter((p) => !bestPlay.includes(p));
+  return { play: bestPlay, sit };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,83 +400,24 @@ export function generateSchedule(
 
   const needed = gamesPerRound * 4;
   const sittingCount = n - needed;
-  const target = totalRounds ?? Math.max(10, Math.ceil((n * (n - 1)) / 2 / (gamesPerRound * 2)) + 2);
 
-  const restCount: Record<number, number> = {};
-  const playCount: Record<number, number> = {};
-  const totalSits: Record<number, number> = {};
-  playerIds.forEach((id) => { restCount[id] = 0; playCount[id] = 0; totalSits[id] = 0; });
+  // Enough rounds for good rotation; clamp to a sensible range.
+  const target =
+    totalRounds ?? Math.min(30, Math.max(12, n * 2));
+
+  const s = initState(playerIds);
+  const seed = n * 1000003 + numCourts * 9176 + gamesPerRound * 31 + 7;
+  const rng = makeRng(seed);
 
   const result: Round[] = [];
-  let prevPairs = new Set<string>();
-
-  if (sittingCount <= 0) {
-    // Everyone plays every round
-    for (let r = 0; r < target; r++) {
-      const active = [...playerIds].sort((a, b) => (restCount[b] - restCount[a]) || (playCount[a] - playCount[b]));
-      const games = buildGames(active, numCourts, prevPairs, r);
-      const matchups: Matchup[] = games.map((g, i) => ({ teamA: g.teamA, teamB: g.teamB, gameNumber: i + 1, courtNumber: g.court }));
-      result.push({ roundNumber: r + 1, matchups, sitting: [] });
-      const thisPairs = new Set<string>();
-      matchups.forEach(m => { thisPairs.add(pairKey(m.teamA[0], m.teamA[1])); thisPairs.add(pairKey(m.teamB[0], m.teamB[1])); });
-      prevPairs = thisPairs;
-      playerIds.forEach(id => { restCount[id] = 0; playCount[id]++; });
-    }
-    return result;
-  }
-
-  // ── Rotating queue sit assignment ─────────────────────────────────────────
-  // Start with a randomised ordering of all players.
-  // Each round takes the next sittingCount from the queue.
-  // After every full cycle (n/sittingCount rounds), rotate the queue
-  // by 1 position so group membership changes each cycle.
-  let queue = seededShuffle([...playerIds], n * 31 + numCourts * 7);
-  let queuePos = 0;
-  let cycleNumber = 0;
 
   for (let r = 0; r < target; r++) {
-    // Wrap queue → start new cycle with a rotated queue
-    if (queuePos >= queue.length) {
-      queuePos = 0;
-      cycleNumber++;
-      // Shift by cycleNumber % sittingCount so each cycle's groups differ
-      const shift = cycleNumber % Math.max(1, sittingCount);
-      queue = [...queue.slice(shift), ...queue.slice(0, shift)];
-    }
+    s.round = r + 1; // 1-based so "last round" gap math works (gap 1 = previous round)
+    const { playing, sitting } = chooseSitting(s, playerIds, sittingCount, rng);
+    const games = buildGames(s, playing, numCourts, rng);
 
-    // Draw next sittingCount players as sitters
-    const sitting: number[] = [];
-    const sittingSet = new Set<number>();
-    let pos = queuePos;
+    repairRound(s, games, rng);
 
-    while (sitting.length < sittingCount && pos < queue.length) {
-      const p = queue[pos++];
-      if (!sittingSet.has(p)) { sitting.push(p); sittingSet.add(p); }
-    }
-    queuePos = pos;
-
-    // Fairness correction: if a selected sitter has sat significantly more
-    // than the average, swap them for the player with the fewest sits
-    // who isn't currently sitting
-    const avgSits = Object.values(totalSits).reduce((s, v) => s + v, 0) / n;
-    for (let i = 0; i < sitting.length; i++) {
-      if (totalSits[sitting[i]] > avgSits + 1) {
-        const alternatives = playerIds
-          .filter(p => !sittingSet.has(p) && totalSits[p] < totalSits[sitting[i]])
-          .sort((a, b) => totalSits[a] - totalSits[b]);
-        if (alternatives.length > 0) {
-          sittingSet.delete(sitting[i]);
-          sittingSet.add(alternatives[0]);
-          sitting[i] = alternatives[0];
-        }
-      }
-    }
-
-    const active = playerIds
-      .filter(id => !sittingSet.has(id))
-      .sort((a, b) => (restCount[b] - restCount[a]) || (playCount[a] - playCount[b]));
-
-    const games = buildGames(active, numCourts, prevPairs, r);
     const matchups: Matchup[] = games.map((g, i) => ({
       teamA: g.teamA,
       teamB: g.teamB,
@@ -226,19 +426,7 @@ export function generateSchedule(
     }));
 
     result.push({ roundNumber: r + 1, matchups, sitting });
-
-    const thisPairs = new Set<string>();
-    const playingSet = new Set(active);
-    matchups.forEach(m => {
-      thisPairs.add(pairKey(m.teamA[0], m.teamA[1]));
-      thisPairs.add(pairKey(m.teamB[0], m.teamB[1]));
-    });
-    prevPairs = thisPairs;
-
-    playerIds.forEach(id => {
-      if (playingSet.has(id)) { restCount[id] = 0; playCount[id]++; }
-      else { restCount[id]++; totalSits[id]++; }
-    });
+    commitRound(s, games, sitting);
   }
 
   return result;
@@ -265,7 +453,7 @@ function generateSinglesSchedule(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Public API
+// Public API (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function getRound(
@@ -275,7 +463,7 @@ export function getRound(
 ): { round: Round | null; totalRounds: number; schedule: Round[] } {
   const schedule = generateSchedule(playerIds, numCourts);
   if (schedule.length === 0) return { round: null, totalRounds: 0, schedule: [] };
-  const wrapped = roundIndex % schedule.length;
+  const wrapped = ((roundIndex % schedule.length) + schedule.length) % schedule.length;
   return { round: schedule[wrapped], totalRounds: schedule.length, schedule };
 }
 
