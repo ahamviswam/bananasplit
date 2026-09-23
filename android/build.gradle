@@ -22,6 +22,13 @@ allprojects {
         google()
         mavenCentral()
     }
+    configurations.all {
+        // kotlin-stdlib 1.8+ merges the old split jdk7/jdk8 modules, but some
+        // transitive deps still pull the split jars in, causing duplicate
+        // class errors at release build time.
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk7'
+        exclude group: 'org.jetbrains.kotlin', module: 'kotlin-stdlib-jdk8'
+    }
 }
 
 tasks.register('clean', Delete) {
