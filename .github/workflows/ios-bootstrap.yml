@@ -4,6 +4,10 @@ name: iOS Platform Bootstrap
 # since CocoaPods can't be installed locally on the dev machine, then commits
 # the generated project back to main. Safe to re-run — it no-ops if ios/App
 # already exists.
+#
+# retry: capacitor/cli was mismatched against core/android/ios (v7 vs v8),
+# which produced an Xcode project with too low a deployment target for the
+# v8 Capacitor pod. Fixed by aligning all @capacitor/* packages to 8.5.2.
 
 on:
   workflow_dispatch: {}
