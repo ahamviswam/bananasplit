@@ -1,0 +1,47 @@
+name: iOS Build Check
+
+# Unsigned build verification only — confirms the Xcode project compiles.
+# Does not need an Apple Developer Program membership. The real
+# archive-and-sign release pipeline (ios-release.yml) is added once
+# certificates/provisioning are available.
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - "client/**"
+      - "shared/**"
+      - "package.json"
+      - "capacitor.config.ts"
+      - ".github/workflows/ios-build-check.yml"
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Sync Capacitor iOS
+        run: npx cap sync ios
+
+      - name: Build (unsigned, simulator SDK)
+        working-directory: ios/App
+        run: |
+          xcodebuild build \
+            -project App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO
