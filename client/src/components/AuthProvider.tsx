@@ -50,9 +50,10 @@ function clearAuth() {
 
 // API base — same logic as queryClient
 const IS_LOCAL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+const IS_CAPACITOR = window.location.protocol === "capacitor:" || window.location.protocol === "ionic:" || (window as any).Capacitor !== undefined;
 const RAILWAY_URL = "https://bananasplit-production.up.railway.app";
 const API_BASE = "__PORT_5000__".startsWith("__")
-  ? (IS_LOCAL ? "" : RAILWAY_URL)
+  ? (IS_LOCAL && !IS_CAPACITOR ? "" : RAILWAY_URL)
   : "__PORT_5000__";
 
 async function authFetch(path: string, body: object) {
