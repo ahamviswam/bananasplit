@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Plus, Users, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
-import { AppShell } from "@/components/AppShell";
+import { AppShell, BananaSplitLogo } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
@@ -70,14 +70,11 @@ export default function GroupsPage() {
     >
       {/* Hero banner */}
       <div className="mb-8 rounded-xl bg-primary/10 border border-primary/20 px-6 py-8 flex items-start gap-4">
-        <div className="rounded-lg bg-accent/20 p-3 flex-shrink-0">
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden>
-            <circle cx="16" cy="16" r="14" fill="hsl(47,95%,55%)" stroke="hsl(47,80%,38%)" strokeWidth="1.5" />
-            <path d="M16 2 C16 2, 10 8, 10 16 C10 24, 16 30, 16 30" stroke="hsl(82,55%,32%)" strokeWidth="1.5" fill="none" />
-            <path d="M16 2 C16 2, 22 8, 22 16 C22 24, 16 30, 16 30" stroke="hsl(82,55%,32%)" strokeWidth="1.5" fill="none" />
-            <ellipse cx="16" cy="16" rx="14" ry="6" stroke="hsl(82,55%,32%)" strokeWidth="1.2" fill="none" />
-            <circle cx="16" cy="16" r="2" fill="hsl(82,55%,32%)" />
-          </svg>
+        <div
+          className="rounded-lg p-3 flex-shrink-0"
+          style={{ background: "linear-gradient(135deg, hsl(258 80% 58%), hsl(325 90% 58%))" }}
+        >
+          <BananaSplitLogo size={32} className="text-white" />
         </div>
         <div>
           <h2 className="text-xl font-bold text-foreground mb-1">Your Pickleball Groups</h2>
@@ -107,8 +104,11 @@ export default function GroupsPage() {
               <CardContent className="pt-5 pb-5 flex items-center gap-3">
                 {/* Clickable area → navigate to group */}
                 <Link href={`/groups/${group.id}`} className="flex items-center gap-3 min-w-0 flex-1">
-                  <div className="w-10 h-10 rounded-lg bg-primary/15 flex items-center justify-center flex-shrink-0">
-                    <Users className="w-5 h-5 text-primary" />
+                  <div
+                    className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
+                    style={{ background: "linear-gradient(135deg, hsl(258 80% 58%), hsl(325 90% 58%))" }}
+                  >
+                    <BananaSplitLogo size={20} className="text-white" />
                   </div>
                   <div className="min-w-0">
                     <p className="font-semibold text-sm truncate" data-testid={`text-group-name-${group.id}`}>
@@ -139,8 +139,11 @@ export default function GroupsPage() {
         </div>
       ) : (
         <div className="flex flex-col items-center text-center py-20 text-muted-foreground">
-          <div className="w-16 h-16 rounded-full bg-accent/20 flex items-center justify-center mb-4">
-            <Users className="w-8 h-8 text-accent" />
+          <div
+            className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
+            style={{ background: "linear-gradient(135deg, hsl(258 80% 58%), hsl(325 90% 58%))" }}
+          >
+            <BananaSplitLogo size={32} className="text-white" />
           </div>
           <h3 className="font-semibold text-foreground mb-1">No groups yet</h3>
           <p className="text-sm max-w-xs mb-5">
