@@ -1,9 +1,9 @@
 name: iOS App Store Screenshots
 
-# Scripted, non-interactive screenshot capture: boots simulators, installs
-# the unsigned simulator build, launches it, waits, and screenshots whatever
-# is showing (no UI navigation - this is a "blind" capture, so it'll likely
-# just be the auth/empty-state screen, not a curated flow).
+# Scripted, non-interactive screenshot capture: for each target route, builds
+# the app with that route baked in as the initial hash (set synchronously,
+# before the app's router initializes - no timing races), boots a simulator,
+# installs, launches, and screenshots after a fixed settle time.
 
 on:
   workflow_dispatch: {}
@@ -11,6 +11,11 @@ on:
 jobs:
   screenshots:
     runs-on: macos-26
+    strategy:
+      matrix:
+        route:
+          - { path: "", name: "groups" }
+          - { path: "/groups/13/balances", name: "balances" }
     steps:
       - uses: actions/checkout@v4
 
@@ -24,16 +29,18 @@ jobs:
       - name: Build web assets
         run: npm run build
 
-      - name: Inject demo auth session + auto-navigation
+      - name: Inject demo auth session + initial route
         env:
           DEMO_TOKEN: ${{ secrets.DEMO_AUTH_TOKEN }}
           DEMO_USER: ${{ secrets.DEMO_AUTH_USER }}
+          ROUTE_PATH: ${{ matrix.route.path }}
         run: |
           python3 -c "
           import json, os
 
           token = os.environ['DEMO_TOKEN']
           user = os.environ['DEMO_USER']
+          route = os.environ['ROUTE_PATH']
 
           inject = '''<script>
           (function() {
@@ -45,9 +52,9 @@ jobs:
               sessionStorage.setItem('bs_auth_token', token);
               sessionStorage.setItem('bs_auth_user', user);
             } catch(e) {}
-            setTimeout(function() {
-              window.location.hash = '/groups/13/balances';
-            }, 6000);
+            // Set the initial route synchronously, before the router mounts -
+            // no setTimeout race with app boot time.
+            window.location.hash = ''' + json.dumps(route) + ''';
           })();
           </script>'''
 
@@ -61,9 +68,6 @@ jobs:
 
       - name: Sync Capacitor iOS
         run: npx cap sync ios
-
-      - name: List available simulator device types
-        run: xcrun simctl list devicetypes
 
       - name: Build for simulator
         working-directory: ios/App
@@ -82,6 +86,8 @@ jobs:
           echo "APP_PATH=$(find $RUNNER_TEMP/build -name 'App.app' -path '*iphonesimulator*' | head -1)" >> $GITHUB_ENV
 
       - name: Capture screenshots
+        env:
+          ROUTE_NAME: ${{ matrix.route.name }}
         run: |
           mkdir -p $RUNNER_TEMP/screenshots
           BUNDLE_ID="com.pickletab.ios"
@@ -89,9 +95,9 @@ jobs:
           capture_for_device() {
             local device_name="$1"
             local out_prefix="$2"
-            echo "=== $device_name ==="
+            echo "=== $device_name ($ROUTE_NAME) ==="
 
-            local udid=$(xcrun simctl create "shot-$out_prefix" "$device_name" 2>&1 | tail -1)
+            local udid=$(xcrun simctl create "shot-$out_prefix-$ROUTE_NAME" "$device_name" 2>&1 | tail -1)
             echo "udid: $udid"
             xcrun simctl boot "$udid"
             xcrun simctl bootstatus "$udid" -b
@@ -99,25 +105,20 @@ jobs:
             xcrun simctl install "$udid" "$APP_PATH"
             xcrun simctl launch "$udid" "$BUNDLE_ID"
 
-            # first shot: groups list (auth restored, before the 6s auto-nav fires)
-            sleep 4
-            xcrun simctl io "$udid" screenshot "$RUNNER_TEMP/screenshots/${out_prefix}_groups.png"
-
-            # second shot: balances page (after auto-nav + data load)
-            sleep 8
-            xcrun simctl io "$udid" screenshot "$RUNNER_TEMP/screenshots/${out_prefix}_balances.png"
+            sleep 10
+            xcrun simctl io "$udid" screenshot "$RUNNER_TEMP/screenshots/${out_prefix}_${ROUTE_NAME}.png"
 
             xcrun simctl shutdown "$udid"
             xcrun simctl delete "$udid"
           }
 
-          capture_for_device "iPhone 17 Pro Max" "iphone69" || echo "iPhone 17 Pro Max failed, trying fallback"
-          capture_for_device "iPad Pro 13-inch (M4)" "ipad13" || echo "iPad Pro 13-inch failed, trying fallback"
+          capture_for_device "iPhone 17 Pro Max" "iphone69"
+          capture_for_device "iPad Pro 13-inch (M4)" "ipad13"
 
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pickletab-ios-screenshots
+          name: pickletab-ios-screenshots-${{ matrix.route.name }}
           path: ${{ runner.temp }}/screenshots/*.png
           if-no-files-found: warn
