@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
 import { apiRequest } from "@/lib/queryClient";
+import { GUEST_TRIAL_DAYS } from "@/lib/guestMode";
 import { Sun, Moon, Eye, EyeOff } from "lucide-react";
 
 type Mode = "login" | "register" | "forgot";
@@ -33,7 +34,8 @@ export default function AuthPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [forgotSubmitted, setForgotSubmitted] = useState(false);
-  const { login, register } = useAuth();
+  const [isStartingGuest, setIsStartingGuest] = useState(false);
+  const { login, register, guestExpired, startGuest } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   const resetForm = () => {
@@ -41,6 +43,15 @@ export default function AuthPage() {
   };
 
   const switchMode = (m: Mode) => { setMode(m); resetForm(); };
+
+  const handleContinueAsGuest = async () => {
+    setIsStartingGuest(true);
+    try {
+      await startGuest();
+    } finally {
+      setIsStartingGuest(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,6 +138,39 @@ export default function AuthPage() {
       <div className="flex-1 flex items-center justify-center px-4 py-8">
         <div className="w-full max-w-md">
 
+          {guestExpired ? (
+            <>
+              {/* ── Guest trial ended ─────────────────────────────────────── */}
+              <div className="text-center mb-8">
+                <h1 className="text-3xl font-bold text-foreground mb-2">Your trial has ended</h1>
+                <p className="text-muted-foreground text-sm">
+                  Your {GUEST_TRIAL_DAYS}-day guest trial is over — sign up to keep using PickleTab
+                </p>
+              </div>
+              <div className="glass-strong rounded-2xl p-6 shadow-2xl">
+                <Button
+                  className="w-full btn-gradient rounded-xl h-11 font-semibold shadow-lg text-white border-0"
+                  onClick={() => { setMode("register"); }}
+                  data-testid="btn-guest-expired-signup"
+                >
+                  Create an account
+                </Button>
+                <div className="mt-4 text-center text-sm text-muted-foreground">
+                  Already have an account?{" "}
+                  <button
+                    onClick={() => setMode("login")}
+                    className="text-gradient font-semibold hover:opacity-80"
+                    data-testid="btn-guest-expired-login"
+                  >
+                    Sign in
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : null}
+
+          {!guestExpired && (
+          <>
           {/* Tagline */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2">
@@ -296,6 +340,20 @@ export default function AuthPage() {
             )}
           </div>
 
+          {mode === "login" && (
+            <div className="mt-4 text-center">
+              <button
+                type="button"
+                onClick={handleContinueAsGuest}
+                disabled={isStartingGuest}
+                className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2"
+                data-testid="btn-continue-as-guest"
+              >
+                {isStartingGuest ? "Starting…" : `Continue as guest (${GUEST_TRIAL_DAYS}-day trial)`}
+              </button>
+            </div>
+          )}
+
           {/* Feature pills */}
           <div className="mt-6 grid grid-cols-3 gap-3 text-center">
             {features.map(f => (
@@ -305,6 +363,8 @@ export default function AuthPage() {
               </div>
             ))}
           </div>
+          </>
+          )}
         </div>
       </div>
     </div>

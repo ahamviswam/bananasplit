@@ -55,7 +55,7 @@ interface AppShellProps {
 
 export function AppShell({ title, backHref, actions, children }: AppShellProps) {
   const { theme, toggleTheme } = useTheme();
-  const { user, logout } = useAuth();
+  const { user, logout, isGuest, guestDaysLeft } = useAuth();
   const [location] = useLocation();
   const isHome = location === "/";
 
@@ -168,6 +168,18 @@ export function AppShell({ title, backHref, actions, children }: AppShellProps) 
           </div>
         </div>
       </header>
+
+      {/* ── Guest trial banner ──────────────────────────────────────────── */}
+      {isGuest && (
+        <div className="bg-accent/20 border-b border-accent/30 px-4 py-2 text-center text-xs text-foreground/80">
+          {guestDaysLeft === 1
+            ? "Last day of your guest trial — "
+            : `${guestDaysLeft ?? 0} days left in your guest trial — `}
+          <button onClick={logout} className="font-semibold text-gradient hover:opacity-80" data-testid="btn-guest-banner-signup">
+            Sign up to save your data
+          </button>
+        </div>
+      )}
 
       {/* ── Main content ────────────────────────────────────────────────── */}
       <main className="flex-1 max-w-3xl mx-auto w-full px-4 py-6">

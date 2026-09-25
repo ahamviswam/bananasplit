@@ -10,10 +10,19 @@ const API_BASE = "__PORT_5000__".startsWith("__")
   ? (IS_LOCAL && !IS_CAPACITOR ? "" : RAILWAY_URL)  // GitHub Pages / Android → Railway
   : "__PORT_5000__";                                  // Deployed with real server → use proxy
 
+// ── Guest mode — forces the local memory store regardless of backend
+// reachability, so guest sessions never touch the real API or database ──────
+let _guestMode = false;
+
+export function setGuestMode(active: boolean) {
+  _guestMode = active;
+}
+
 // ── Backend detection (runs once, all callers share the same promise) ─────────
 let _backendCheckPromise: Promise<boolean> | null = null;
 
 function checkBackend(): Promise<boolean> {
+  if (_guestMode) return Promise.resolve(false);
   if (_backendCheckPromise) return _backendCheckPromise;
   _backendCheckPromise = (async () => {
     // When pointing at Railway directly, always use backend (skip detection)

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
-import { setAuthToken, queryClient } from "@/lib/queryClient";
+import { setAuthToken, setGuestMode, queryClient } from "@/lib/queryClient";
+import { getGuestStartedAt, startGuestSession, isGuestExpired, guestDaysLeft, GUEST_TRIAL_DAYS } from "@/lib/guestMode";
 
 export interface AuthUser {
   id: number;
@@ -8,6 +9,9 @@ export interface AuthUser {
   isAdmin?: boolean;
 }
 
+const GUEST_TOKEN = "guest-local-token";
+const GUEST_USER: AuthUser = { id: 1, email: "guest@pickletab.local", name: "Guest" };
+
 interface AuthContextValue {
   user: AuthUser | null;
   token: string | null;
@@ -15,12 +19,18 @@ interface AuthContextValue {
   register: (email: string, name: string, password: string) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
+  isGuest: boolean;
+  guestExpired: boolean;
+  guestDaysLeft: number | null;
+  startGuest: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
   user: null, token: null,
   login: async () => {}, register: async () => {}, logout: () => {},
   isLoading: true,
+  isGuest: false, guestExpired: false, guestDaysLeft: null,
+  startGuest: async () => {},
 });
 
 // Use sessionStorage as a fallback — it persists within a tab session
@@ -71,20 +81,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isGuest, setIsGuest] = useState(false);
+  const [guestExpired, setGuestExpired] = useState(false);
+  const [guestDaysLeftState, setGuestDaysLeftState] = useState<number | null>(null);
 
-  // Restore session on mount
-  useEffect(() => {
-    const saved = loadAuth();
-    if (saved) {
-      setToken(saved.token);
-      setUser(saved.user);
-      setAuthToken(saved.token); // restore in-memory token immediately
-    }
-    setIsLoading(false);
+  const activateGuest = useCallback((startedAt: number) => {
+    setGuestMode(true);
+    setAuthToken(GUEST_TOKEN);
+    setToken(GUEST_TOKEN);
+    setUser(GUEST_USER);
+    setIsGuest(true);
+    setGuestExpired(false);
+    setGuestDaysLeftState(guestDaysLeft(startedAt));
   }, []);
+
+  // Restore session on mount — a real logged-in session always wins over a
+  // guest trial; only fall back to checking guest state if there's no
+  // real session saved on this device.
+  useEffect(() => {
+    (async () => {
+      const saved = loadAuth();
+      if (saved) {
+        setToken(saved.token);
+        setUser(saved.user);
+        setAuthToken(saved.token); // restore in-memory token immediately
+        setIsLoading(false);
+        return;
+      }
+      const startedAt = await getGuestStartedAt();
+      if (startedAt !== null) {
+        if (isGuestExpired(startedAt)) {
+          setIsGuest(true);
+          setGuestExpired(true);
+          setGuestDaysLeftState(0);
+        } else {
+          activateGuest(startedAt);
+        }
+      }
+      setIsLoading(false);
+    })();
+  }, [activateGuest]);
+
+  const startGuest = useCallback(async () => {
+    const startedAt = await startGuestSession();
+    activateGuest(startedAt);
+  }, [activateGuest]);
 
   const login = useCallback(async (email: string, password: string) => {
     const data = await authFetch("/api/auth/login", { email, password });
+    setGuestMode(false);
+    setIsGuest(false);
+    setGuestExpired(false);
     setToken(data.token);
     setUser(data.user);
     saveAuth(data.token, data.user);
@@ -94,6 +141,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = useCallback(async (email: string, name: string, password: string) => {
     const data = await authFetch("/api/auth/register", { email, name, password });
+    setGuestMode(false);
+    setIsGuest(false);
+    setGuestExpired(false);
     setToken(data.token);
     setUser(data.user);
     saveAuth(data.token, data.user);
@@ -102,6 +152,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    setGuestMode(false);
+    setIsGuest(false);
+    setGuestExpired(false);
     setToken(null);
     setUser(null);
     clearAuth();
@@ -110,7 +163,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, token, login, register, logout, isLoading }}>
+    <AuthContext.Provider value={{
+      user, token, login, register, logout, isLoading,
+      isGuest, guestExpired, guestDaysLeft: guestDaysLeftState, startGuest,
+    }}>
       {children}
     </AuthContext.Provider>
   );
