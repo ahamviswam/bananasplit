@@ -4,7 +4,9 @@ import { storage } from "./storage";
 import { insertGroupSchema, insertMemberSchema, insertSessionSchema, insertExpenseSchema, insertPaymentSchema, insertFeedbackSchema } from "@shared/schema";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { signToken, authMiddleware, adminMiddleware, getUser } from "./auth";
+import { sendPasswordResetEmail } from "./email";
 
 // ── Balance calculation helpers ───────────────────────────────────────────────
 function computeBalances(groupId: number) {
@@ -116,6 +118,49 @@ export function registerRoutes(httpServer: Server, app: Express) {
   app.get("/api/auth/me", authMiddleware, (req, res) => {
     const user = getUser(req);
     res.json({ id: user.userId, email: user.email, name: user.name });
+  });
+
+  const WEB_BASE_URL = process.env.WEB_BASE_URL || "https://bananasplit-production.up.railway.app";
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+
+    const user = storage.getUserByEmail(email);
+    if (user) {
+      const token = crypto.randomBytes(32).toString("hex");
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+      storage.createPasswordResetToken({
+        userId: user.id,
+        token,
+        expiresAt,
+        usedAt: null,
+        createdAt: new Date().toISOString(),
+      });
+      const resetUrl = `${WEB_BASE_URL}/?resetToken=${token}`;
+      await sendPasswordResetEmail(user.email, resetUrl);
+    }
+    // Always return the same response, whether or not the email exists,
+    // so this endpoint can't be used to enumerate registered accounts.
+    res.json({ message: "If an account exists for that email, a reset link has been sent." });
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: "Token and new password are required" });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: "Password must be at least 6 characters" });
+    }
+    const resetToken = storage.getPasswordResetToken(token);
+    if (!resetToken || resetToken.usedAt || new Date(resetToken.expiresAt) < new Date()) {
+      return res.status(400).json({ error: "This reset link is invalid or has expired" });
+    }
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    storage.updatePassword(resetToken.userId, passwordHash);
+    storage.markPasswordResetTokenUsed(resetToken.id, new Date().toISOString());
+    res.json({ message: "Password reset successfully" });
   });
 
 

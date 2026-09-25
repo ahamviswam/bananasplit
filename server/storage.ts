@@ -4,7 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { mkdirSync } from "fs";
 import { dirname } from "path";
 import {
-  feedback, users, groups, members, sessions, expenses, payments,
+  feedback, users, groups, members, sessions, expenses, payments, passwordResetTokens,
   type Feedback, type InsertFeedback,
   type User, type InsertUser,
   type Group, type InsertGroup,
@@ -12,6 +12,7 @@ import {
   type Session, type InsertSession,
   type Expense, type InsertExpense,
   type Payment, type InsertPayment,
+  type PasswordResetToken, type InsertPasswordResetToken,
 } from "@shared/schema";
 
 const dbPath = process.env.DATABASE_PATH || "bananasplit.db";
@@ -57,6 +58,14 @@ const migrations = [
   )`,
   "ALTER TABLE groups ADD COLUMN owner_id INTEGER NOT NULL DEFAULT 0",
   "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0",
+  `CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    created_at TEXT NOT NULL
+  )`,
 ];
 for (const m of migrations) {
   try { sqlite.exec(m); } catch { /* already exists — safe to ignore */ }
@@ -135,6 +144,11 @@ export interface IStorage {
   deleteUser(id: number): void;
   updatePassword(id: number, passwordHash: string): void;
 
+  // Password reset
+  createPasswordResetToken(data: InsertPasswordResetToken): PasswordResetToken;
+  getPasswordResetToken(token: string): PasswordResetToken | undefined;
+  markPasswordResetTokenUsed(id: number, usedAt: string): void;
+
   // Groups
   getAllGroups(): Group[];
   getGroups(ownerId: number): Group[];
@@ -206,6 +220,19 @@ export class Storage implements IStorage {
 
   updatePassword(id: number, passwordHash: string): void {
     db.update(users).set({ passwordHash }).where(eq(users.id, id)).run();
+  }
+
+  // ── Password reset ──────────────────────────────────────────────────────────
+  createPasswordResetToken(data: InsertPasswordResetToken): PasswordResetToken {
+    return db.insert(passwordResetTokens).values(data).returning().get();
+  }
+
+  getPasswordResetToken(token: string): PasswordResetToken | undefined {
+    return db.select().from(passwordResetTokens).where(eq(passwordResetTokens.token, token)).get();
+  }
+
+  markPasswordResetTokenUsed(id: number, usedAt: string): void {
+    db.update(passwordResetTokens).set({ usedAt }).where(eq(passwordResetTokens.id, id)).run();
   }
 
   // ── Groups ───────────────────────────────────────────────────────────────────

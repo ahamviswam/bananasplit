@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider, useAuth } from "@/components/AuthProvider";
 import AuthPage from "@/pages/AuthPage";
+import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import GroupsPage from "@/pages/GroupsPage";
 import GroupDetailPage from "@/pages/GroupDetailPage";
 import SessionDetailPage from "@/pages/SessionDetailPage";
@@ -34,6 +35,13 @@ function AdminGuard() {
 
 function AppRoutes() {
   const { user, isLoading } = useAuth();
+
+  // A password-reset link works regardless of auth state — check for it
+  // before anything else so a logged-in user can still land on it.
+  const resetToken = new URLSearchParams(window.location.search).get("resetToken");
+  if (resetToken) {
+    return <ResetPasswordPage token={resetToken} />;
+  }
 
   // Show nothing while restoring auth state from storage
   if (isLoading) {

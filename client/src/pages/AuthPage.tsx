@@ -5,9 +5,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/components/AuthProvider";
 import { useTheme } from "@/components/ThemeProvider";
+import { apiRequest } from "@/lib/queryClient";
 import { Sun, Moon, Eye, EyeOff } from "lucide-react";
 
-type Mode = "login" | "register";
+type Mode = "login" | "register" | "forgot";
+
+// apiRequest throws "<status>: <raw response text>" — pull the JSON {error} out
+// of that if present, falling back to the raw message otherwise.
+function extractErrorMessage(err: any, fallback: string): string {
+  const raw = err?.message as string | undefined;
+  if (!raw) return fallback;
+  const jsonPart = raw.slice(raw.indexOf(":") + 1).trim();
+  try {
+    const parsed = JSON.parse(jsonPart);
+    if (parsed?.error) return parsed.error;
+  } catch {}
+  return raw;
+}
 
 export default function AuthPage() {
   const [mode, setMode] = useState<Mode>("login");
@@ -18,11 +32,12 @@ export default function AuthPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [forgotSubmitted, setForgotSubmitted] = useState(false);
   const { login, register } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
   const resetForm = () => {
-    setEmail(""); setName(""); setPassword(""); setConfirmPassword(""); setError("");
+    setEmail(""); setName(""); setPassword(""); setConfirmPassword(""); setError(""); setForgotSubmitted(false);
   };
 
   const switchMode = (m: Mode) => { setMode(m); resetForm(); };
@@ -30,6 +45,20 @@ export default function AuthPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (mode === "forgot") {
+      setIsLoading(true);
+      try {
+        await apiRequest("POST", "/api/auth/forgot-password", { email: email.trim() });
+        setForgotSubmitted(true);
+      } catch (err: any) {
+        setError(extractErrorMessage(err, "Something went wrong. Please try again."));
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
     if (mode === "register") {
       if (!name.trim()) { setError("Please enter your name"); return; }
       if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
@@ -101,17 +130,33 @@ export default function AuthPage() {
           {/* Tagline */}
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold text-foreground mb-2">
-              {mode === "login" ? "Welcome back!" : "Join PickleTab"}
+              {mode === "login" ? "Welcome back!" : mode === "register" ? "Join PickleTab" : "Reset password"}
             </h1>
             <p className="text-muted-foreground text-sm">
               {mode === "login"
                 ? "Sign in to access your pickleball groups"
-                : "Start splitting court fees with your crew"}
+                : mode === "register"
+                ? "Start splitting court fees with your crew"
+                : "Enter your email and we'll send you a reset link"}
             </p>
           </div>
 
           {/* Glass card */}
           <div className="glass-strong rounded-2xl p-6 shadow-2xl">
+            {mode === "forgot" && forgotSubmitted ? (
+              <div className="text-center py-2 space-y-4">
+                <p className="text-sm text-foreground">
+                  If an account exists for <span className="font-semibold">{email}</span>, a reset link has been sent. Check your inbox.
+                </p>
+                <button
+                  onClick={() => switchMode("login")}
+                  className="text-gradient font-semibold text-sm hover:opacity-80"
+                  data-testid="btn-back-to-login"
+                >
+                  Back to sign in
+                </button>
+              </div>
+            ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
 
               {/* Name (register only) */}
@@ -146,8 +191,21 @@ export default function AuthPage() {
               </div>
 
               {/* Password */}
+              {mode !== "forgot" && (
               <div className="space-y-1.5">
-                <Label htmlFor="password" className="text-sm font-medium">Password</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password" className="text-sm font-medium">Password</Label>
+                  {mode === "login" && (
+                    <button
+                      type="button"
+                      onClick={() => switchMode("forgot")}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                      data-testid="btn-forgot-password"
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
                 <div className="relative">
                   <Input
                     id="password"
@@ -168,6 +226,7 @@ export default function AuthPage() {
                   </button>
                 </div>
               </div>
+              )}
 
               {/* Confirm password */}
               {mode === "register" && (
@@ -201,12 +260,14 @@ export default function AuthPage() {
                 data-testid="btn-auth-submit"
               >
                 {isLoading
-                  ? (mode === "login" ? "Signing in…" : "Creating account…")
-                  : (mode === "login" ? "Sign in" : "Create account")}
+                  ? (mode === "login" ? "Signing in…" : mode === "register" ? "Creating account…" : "Sending…")
+                  : (mode === "login" ? "Sign in" : mode === "register" ? "Create account" : "Send reset link")}
               </Button>
             </form>
+            )}
 
             {/* Switch mode */}
+            {mode !== "forgot" && (
             <div className="mt-5 text-center text-sm text-muted-foreground">
               {mode === "login" ? (
                 <>
@@ -232,6 +293,7 @@ export default function AuthPage() {
                 </>
               )}
             </div>
+            )}
           </div>
 
           {/* Feature pills */}
