@@ -24,6 +24,41 @@ jobs:
       - name: Build web assets
         run: npm run build
 
+      - name: Inject demo auth session + auto-navigation
+        env:
+          DEMO_TOKEN: ${{ secrets.DEMO_AUTH_TOKEN }}
+          DEMO_USER: ${{ secrets.DEMO_AUTH_USER }}
+        run: |
+          python3 -c "
+          import json, os
+
+          token = os.environ['DEMO_TOKEN']
+          user = os.environ['DEMO_USER']
+
+          inject = '''<script>
+          (function() {
+            try {
+              var token = ''' + json.dumps(token) + ''';
+              var user = ''' + json.dumps(user) + ''';
+              localStorage.setItem('bs_auth_token', token);
+              localStorage.setItem('bs_auth_user', user);
+              sessionStorage.setItem('bs_auth_token', token);
+              sessionStorage.setItem('bs_auth_user', user);
+            } catch(e) {}
+            setTimeout(function() {
+              window.location.hash = '/groups/13/balances';
+            }, 6000);
+          })();
+          </script>'''
+
+          with open('dist/public/index.html') as f:
+              html = f.read()
+          html = html.replace('</head>', inject + '</head>')
+          with open('dist/public/index.html', 'w') as f:
+              f.write(html)
+          "
+          grep -c "bs_auth_token" dist/public/index.html
+
       - name: Sync Capacitor iOS
         run: npx cap sync ios
 
@@ -63,11 +98,14 @@ jobs:
 
             xcrun simctl install "$udid" "$APP_PATH"
             xcrun simctl launch "$udid" "$BUNDLE_ID"
-            sleep 8
 
-            xcrun simctl io "$udid" screenshot "$RUNNER_TEMP/screenshots/${out_prefix}_1.png"
-            sleep 3
-            xcrun simctl io "$udid" screenshot "$RUNNER_TEMP/screenshots/${out_prefix}_2.png"
+            # first shot: groups list (auth restored, before the 6s auto-nav fires)
+            sleep 4
+            xcrun simctl io "$udid" screenshot "$RUNNER_TEMP/screenshots/${out_prefix}_groups.png"
+
+            # second shot: balances page (after auto-nav + data load)
+            sleep 8
+            xcrun simctl io "$udid" screenshot "$RUNNER_TEMP/screenshots/${out_prefix}_balances.png"
 
             xcrun simctl shutdown "$udid"
             xcrun simctl delete "$udid"
