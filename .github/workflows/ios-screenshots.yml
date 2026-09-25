@@ -1,0 +1,85 @@
+name: iOS App Store Screenshots
+
+# Scripted, non-interactive screenshot capture: boots simulators, installs
+# the unsigned simulator build, launches it, waits, and screenshots whatever
+# is showing (no UI navigation - this is a "blind" capture, so it'll likely
+# just be the auth/empty-state screen, not a curated flow).
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  screenshots:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web assets
+        run: npm run build
+
+      - name: Sync Capacitor iOS
+        run: npx cap sync ios
+
+      - name: List available simulator device types
+        run: xcrun simctl list devicetypes
+
+      - name: Build for simulator
+        working-directory: ios/App
+        run: |
+          xcodebuild build \
+            -project App.xcodeproj \
+            -scheme App \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath $RUNNER_TEMP/build \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Find built .app
+        run: |
+          find $RUNNER_TEMP/build -name "App.app" -path "*iphonesimulator*"
+          echo "APP_PATH=$(find $RUNNER_TEMP/build -name 'App.app' -path '*iphonesimulator*' | head -1)" >> $GITHUB_ENV
+
+      - name: Capture screenshots
+        run: |
+          mkdir -p $RUNNER_TEMP/screenshots
+          BUNDLE_ID="com.pickletab.ios"
+
+          capture_for_device() {
+            local device_name="$1"
+            local out_prefix="$2"
+            echo "=== $device_name ==="
+
+            local udid=$(xcrun simctl create "shot-$out_prefix" "$device_name" 2>&1 | tail -1)
+            echo "udid: $udid"
+            xcrun simctl boot "$udid"
+            xcrun simctl bootstatus "$udid" -b
+
+            xcrun simctl install "$udid" "$APP_PATH"
+            xcrun simctl launch "$udid" "$BUNDLE_ID"
+            sleep 8
+
+            xcrun simctl io "$udid" screenshot "$RUNNER_TEMP/screenshots/${out_prefix}_1.png"
+            sleep 3
+            xcrun simctl io "$udid" screenshot "$RUNNER_TEMP/screenshots/${out_prefix}_2.png"
+
+            xcrun simctl shutdown "$udid"
+            xcrun simctl delete "$udid"
+          }
+
+          capture_for_device "iPhone 17 Pro Max" "iphone69" || echo "iPhone 17 Pro Max failed, trying fallback"
+          capture_for_device "iPad Pro 13-inch (M4)" "ipad13" || echo "iPad Pro 13-inch failed, trying fallback"
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pickletab-ios-screenshots
+          path: ${{ runner.temp }}/screenshots/*.png
+          if-no-files-found: warn
