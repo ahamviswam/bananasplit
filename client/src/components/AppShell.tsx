@@ -62,7 +62,10 @@ export function AppShell({ title, backHref, actions, children }: AppShellProps) 
   return (
     <div className="min-h-screen mesh-bg flex flex-col">
       {/* ── Glass header ─────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 glass-strong shadow-sm border-b border-white/60">
+      <header
+        className="sticky top-0 z-40 glass-strong shadow-sm border-b border-white/60"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
         {/* Gradient accent line at top */}
         <div className="h-0.5 w-full" style={{ background: "linear-gradient(90deg, hsl(210 90% 65%), hsl(258 80% 58%), hsl(325 90% 58%))" }} />
 

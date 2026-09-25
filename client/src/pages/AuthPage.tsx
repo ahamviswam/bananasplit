@@ -70,7 +70,10 @@ export default function AuthPage() {
       />
 
       {/* ── Top bar ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-6 py-4">
+      <div
+        className="flex items-center justify-between px-6 py-4"
+        style={{ paddingTop: "max(1rem, env(safe-area-inset-top))" }}
+      >
         <div className="flex items-center gap-2.5">
           <div
             className="p-1.5 rounded-xl shadow-md"
