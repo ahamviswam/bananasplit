@@ -104,6 +104,7 @@ function EditMemberDialog({ member, onClose }: { member: Member | null; onClose:
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/groups", member!.groupId, "members"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/groups", member!.groupId, "balances"] });
       onClose();
       toast({ title: "Payment info saved" });
     },
