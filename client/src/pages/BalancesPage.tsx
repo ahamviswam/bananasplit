@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowRight, CheckCircle, Plus, History, Copy } from "lucide-react";
+import { ArrowRight, CheckCircle, Plus, History } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -252,37 +252,22 @@ export default function BalancesPage() {
                           </Button>
                         </div>
                       </CardContent>
-                      {(to.venmoUsername || to.zelleContact) && (
+                      {to.venmoUsername && (
                         <CardContent className="pt-0 pb-3 flex flex-wrap items-center gap-2">
-                          {to.venmoUsername && (
-                            <Button
-                              asChild
-                              size="sm"
-                              className="bg-[#3D95CE] hover:bg-[#3D95CE]/90 text-white"
-                              data-testid={`btn-pay-venmo-${i}`}
+                          <Button
+                            asChild
+                            size="sm"
+                            className="bg-[#3D95CE] hover:bg-[#3D95CE]/90 text-white"
+                            data-testid={`btn-pay-venmo-${i}`}
+                          >
+                            <a
+                              href={venmoPayUrl(to.venmoUsername, t.amount, `PickleTab settle up`)}
+                              target="_blank"
+                              rel="noopener noreferrer"
                             >
-                              <a
-                                href={venmoPayUrl(to.venmoUsername, t.amount, `PickleTab settle up`)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              >
-                                Pay {to.name} on Venmo
-                              </a>
-                            </Button>
-                          )}
-                          {to.zelleContact && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                navigator.clipboard?.writeText(to.zelleContact!);
-                                toast({ title: "Copied", description: `${to.zelleContact} copied — send $${t.amount.toFixed(2)} via Zelle` });
-                              }}
-                              data-testid={`btn-pay-zelle-${i}`}
-                            >
-                              <Copy className="w-3.5 h-3.5 mr-1.5" /> Zelle: {to.zelleContact}
-                            </Button>
-                          )}
+                              Pay {to.name} on Venmo
+                            </a>
+                          </Button>
                         </CardContent>
                       )}
                     </Card>

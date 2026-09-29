@@ -85,7 +85,6 @@ function AddMemberDialog({ groupId, open, onClose }: { groupId: number; open: bo
 // ── Edit Member Dialog (Venmo / Zelle payment info) ─────────────────────────────
 function EditMemberDialog({ member, onClose }: { member: Member | null; onClose: () => void }) {
   const [venmoUsername, setVenmoUsername] = useState("");
-  const [zelleContact, setZelleContact] = useState("");
   const { toast } = useToast();
 
   // Reset fields whenever a different member is opened for editing.
@@ -93,14 +92,12 @@ function EditMemberDialog({ member, onClose }: { member: Member | null; onClose:
   if (member && member.id !== openedMemberId) {
     setOpenedMemberId(member.id);
     setVenmoUsername(member.venmoUsername ?? "");
-    setZelleContact(member.zelleContact ?? "");
   }
 
   const saveMutation = useMutation({
     mutationFn: () =>
       apiRequest("PATCH", `/api/members/${member!.id}`, {
         venmoUsername: venmoUsername.trim() || null,
-        zelleContact: zelleContact.trim() || null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/groups", member!.groupId, "members"] });
@@ -116,7 +113,7 @@ function EditMemberDialog({ member, onClose }: { member: Member | null; onClose:
         <DialogHeader>
           <DialogTitle>{member?.name}'s payment info</DialogTitle>
           <DialogDescription>
-            Added here, "Settle up" can link straight to Venmo or show your Zelle contact so others can pay you back faster.
+            Added here, "Settle up" can link straight to Venmo so others can pay you back faster.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-2">
@@ -127,15 +124,6 @@ function EditMemberDialog({ member, onClose }: { member: Member | null; onClose:
               value={venmoUsername}
               onChange={e => setVenmoUsername(e.target.value.replace(/^@/, ""))}
               data-testid="input-venmo-username"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Zelle contact</Label>
-            <Input
-              placeholder="Email or phone registered with Zelle"
-              value={zelleContact}
-              onChange={e => setZelleContact(e.target.value)}
-              data-testid="input-zelle-contact"
             />
           </div>
         </div>
