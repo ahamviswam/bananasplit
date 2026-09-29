@@ -587,10 +587,10 @@ export default function GroupDetailPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="sessions">
+      <Tabs defaultValue="members">
         <TabsList className="w-full mb-4">
-          <TabsTrigger value="sessions" className="flex-1" data-testid="tab-sessions">Sessions</TabsTrigger>
           <TabsTrigger value="members" className="flex-1" data-testid="tab-members">Members</TabsTrigger>
+          <TabsTrigger value="sessions" className="flex-1" data-testid="tab-sessions">Sessions</TabsTrigger>
         </TabsList>
 
         {/* ── Sessions Tab ── */}
