@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowRight, CheckCircle, Plus, History } from "lucide-react";
+import { ArrowRight, CheckCircle, Plus, History, Copy } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,18 @@ import { cn } from "@/lib/utils";
 
 function getInitials(name: string) {
   return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+}
+
+// Venmo's web URL prompts "Open in Venmo app" on mobile and falls back to a
+// web checkout otherwise — more reliable than the venmo:// scheme alone,
+// which fails silently if the app isn't installed.
+function venmoPayUrl(username: string, amount: number, note: string): string {
+  const params = new URLSearchParams({
+    txn: "pay",
+    amount: amount.toFixed(2),
+    note,
+  });
+  return `https://venmo.com/${encodeURIComponent(username)}?${params.toString()}`;
 }
 
 // ── Log Payment Dialog ─────────────────────────────────────────────────────────
@@ -240,6 +252,39 @@ export default function BalancesPage() {
                           </Button>
                         </div>
                       </CardContent>
+                      {(to.venmoUsername || to.zelleContact) && (
+                        <CardContent className="pt-0 pb-3 flex flex-wrap items-center gap-2">
+                          {to.venmoUsername && (
+                            <Button
+                              asChild
+                              size="sm"
+                              className="bg-[#3D95CE] hover:bg-[#3D95CE]/90 text-white"
+                              data-testid={`btn-pay-venmo-${i}`}
+                            >
+                              <a
+                                href={venmoPayUrl(to.venmoUsername, t.amount, `PickleTab settle up`)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                Pay {to.name} on Venmo
+                              </a>
+                            </Button>
+                          )}
+                          {to.zelleContact && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                navigator.clipboard?.writeText(to.zelleContact!);
+                                toast({ title: "Copied", description: `${to.zelleContact} copied — send $${t.amount.toFixed(2)} via Zelle` });
+                              }}
+                              data-testid={`btn-pay-zelle-${i}`}
+                            >
+                              <Copy className="w-3.5 h-3.5 mr-1.5" /> Zelle: {to.zelleContact}
+                            </Button>
+                          )}
+                        </CardContent>
+                      )}
                     </Card>
                   );
                 })}

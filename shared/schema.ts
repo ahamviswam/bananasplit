@@ -64,6 +64,8 @@ export const members = sqliteTable("members", {
   groupId: integer("group_id").notNull(),
   name: text("name").notNull(),
   color: text("color").notNull(), // hex color for avatar
+  venmoUsername: text("venmo_username"), // without the @, e.g. "jane-doe"
+  zelleContact: text("zelle_contact"),   // email or phone registered with Zelle
 });
 
 export const insertMemberSchema = createInsertSchema(members).omit({ id: true });

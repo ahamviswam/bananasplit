@@ -189,7 +189,7 @@ export function handleMemoryRequest(method: string, path: string, body?: any): a
 
   if (method === "POST" && path.match(/^\/api\/groups\/\d+\/members$/)) {
     const gid = Number(path.split("/")[3]);
-    const m: Member = { id: nextId(), groupId: gid, name: body.name, color: body.color };
+    const m: Member = { id: nextId(), groupId: gid, name: body.name, color: body.color, venmoUsername: null, zelleContact: null };
     members.push(m);
     putRecord("members", m);
     return m;

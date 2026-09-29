@@ -3,7 +3,7 @@ import { Link, useParams } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Plus, Trash2, Calendar, DollarSign, Users, BarChart3,
-  FileText, ChevronRight, Clock
+  FileText, ChevronRight, Clock, Pencil
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -75,6 +75,73 @@ function AddMemberDialog({ groupId, open, onClose }: { groupId: number; open: bo
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={!name.trim() || addMutation.isPending} data-testid="btn-submit-add-member">
             {addMutation.isPending ? "Adding…" : "Add"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ── Edit Member Dialog (Venmo / Zelle payment info) ─────────────────────────────
+function EditMemberDialog({ member, onClose }: { member: Member | null; onClose: () => void }) {
+  const [venmoUsername, setVenmoUsername] = useState("");
+  const [zelleContact, setZelleContact] = useState("");
+  const { toast } = useToast();
+
+  // Reset fields whenever a different member is opened for editing.
+  const [openedMemberId, setOpenedMemberId] = useState<number | null>(null);
+  if (member && member.id !== openedMemberId) {
+    setOpenedMemberId(member.id);
+    setVenmoUsername(member.venmoUsername ?? "");
+    setZelleContact(member.zelleContact ?? "");
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: () =>
+      apiRequest("PATCH", `/api/members/${member!.id}`, {
+        venmoUsername: venmoUsername.trim() || null,
+        zelleContact: zelleContact.trim() || null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/groups", member!.groupId, "members"] });
+      onClose();
+      toast({ title: "Payment info saved" });
+    },
+  });
+
+  return (
+    <Dialog open={!!member} onOpenChange={v => !v && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{member?.name}'s payment info</DialogTitle>
+          <DialogDescription>
+            Added here, "Settle up" can link straight to Venmo or show your Zelle contact so others can pay you back faster.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div className="space-y-1.5">
+            <Label>Venmo username</Label>
+            <Input
+              placeholder="your-venmo-handle (no @)"
+              value={venmoUsername}
+              onChange={e => setVenmoUsername(e.target.value.replace(/^@/, ""))}
+              data-testid="input-venmo-username"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Zelle contact</Label>
+            <Input
+              placeholder="Email or phone registered with Zelle"
+              value={zelleContact}
+              onChange={e => setZelleContact(e.target.value)}
+              data-testid="input-zelle-contact"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="btn-save-payment-info">
+            {saveMutation.isPending ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -435,6 +502,7 @@ export default function GroupDetailPage() {
   const gid = Number(groupId);
   const [showAddMember, setShowAddMember] = useState(false);
   const [showNewSession, setShowNewSession] = useState(false);
+  const [editingMember, setEditingMember] = useState<Member | null>(null);
   const { toast } = useToast();
 
   const { data: group, isLoading: loadingGroup } = useQuery<Group>({
@@ -676,6 +744,14 @@ export default function GroupDetailPage() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          onClick={() => setEditingMember(m)}
+                          data-testid={`btn-edit-member-${m.id}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           className="text-destructive"
                           onClick={() => {
                             if (confirm(`Remove ${m.name}?`)) deleteMemberMutation.mutate(m.id);
@@ -695,6 +771,7 @@ export default function GroupDetailPage() {
       </Tabs>
 
       <AddMemberDialog groupId={gid} open={showAddMember} onClose={() => setShowAddMember(false)} />
+      <EditMemberDialog member={editingMember} onClose={() => setEditingMember(null)} />
       <NewSessionDialog groupId={gid} members={members} open={showNewSession} onClose={() => setShowNewSession(false)} />
     </AppShell>
   );

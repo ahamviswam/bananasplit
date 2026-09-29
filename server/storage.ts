@@ -66,6 +66,8 @@ const migrations = [
     used_at TEXT,
     created_at TEXT NOT NULL
   )`,
+  "ALTER TABLE members ADD COLUMN venmo_username TEXT",
+  "ALTER TABLE members ADD COLUMN zelle_contact TEXT",
 ];
 for (const m of migrations) {
   try { sqlite.exec(m); } catch { /* already exists — safe to ignore */ }
@@ -86,7 +88,9 @@ sqlite.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id INTEGER NOT NULL,
     name TEXT NOT NULL,
-    color TEXT NOT NULL
+    color TEXT NOT NULL,
+    venmo_username TEXT,
+    zelle_contact TEXT
   );
   CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
