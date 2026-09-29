@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Sun, Moon, ChevronLeft, LogOut, Shield } from "lucide-react";
+import { Sun, Moon, ChevronLeft, LogOut, Shield, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -146,9 +146,17 @@ export function AppShell({ title, backHref, actions, children }: AppShellProps) 
                     <p className="text-sm font-semibold truncate">{user.name}</p>
                     <p className="text-xs text-muted-foreground truncate">{user.email}</p>
                   </div>
+                  {!isGuest && (
+                    <Link href="/profile">
+                      <DropdownMenuItem className="cursor-pointer mt-1" data-testid="btn-profile-link">
+                        <UserIcon className="w-4 h-4 mr-2 text-primary" />
+                        My Profile
+                      </DropdownMenuItem>
+                    </Link>
+                  )}
                   {user.isAdmin && (
                     <Link href="/admin">
-                      <DropdownMenuItem className="cursor-pointer mt-1" data-testid="btn-admin-link">
+                      <DropdownMenuItem className="cursor-pointer" data-testid="btn-admin-link">
                         <Shield className="w-4 h-4 mr-2 text-primary" />
                         Admin Panel
                       </DropdownMenuItem>

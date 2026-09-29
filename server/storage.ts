@@ -53,6 +53,7 @@ const migrations = [
     email TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     password_hash TEXT NOT NULL,
+    venmo_username TEXT,
     is_admin INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   )`,
@@ -68,6 +69,7 @@ const migrations = [
   )`,
   "ALTER TABLE members ADD COLUMN venmo_username TEXT",
   "ALTER TABLE members ADD COLUMN zelle_contact TEXT",
+  "ALTER TABLE users ADD COLUMN venmo_username TEXT",
 ];
 for (const m of migrations) {
   try { sqlite.exec(m); } catch { /* already exists — safe to ignore */ }
@@ -144,6 +146,7 @@ export interface IStorage {
   getUserByEmail(email: string): User | undefined;
   getUserById(id: number): User | undefined;
   createUser(data: InsertUser): User;
+  updateUser(id: number, data: Partial<Pick<InsertUser, "name" | "venmoUsername">>): User | undefined;
   setUserAdmin(id: number, isAdmin: boolean): void;
   deleteUser(id: number): void;
   updatePassword(id: number, passwordHash: string): void;
@@ -212,6 +215,10 @@ export class Storage implements IStorage {
 
   createUser(data: InsertUser): User {
     return db.insert(users).values(data).returning().get();
+  }
+
+  updateUser(id: number, data: Partial<Pick<InsertUser, "name" | "venmoUsername">>): User | undefined {
+    return db.update(users).set(data).where(eq(users.id, id)).returning().get();
   }
 
   setUserAdmin(id: number, isAdmin: boolean): void {

@@ -6,6 +6,7 @@ export interface AuthUser {
   id: number;
   email: string;
   name: string;
+  venmoUsername?: string | null;
   isAdmin?: boolean;
 }
 
@@ -16,7 +17,8 @@ interface AuthContextValue {
   user: AuthUser | null;
   token: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, name: string, password: string) => Promise<void>;
+  register: (email: string, name: string, password: string, venmoUsername?: string) => Promise<void>;
+  updateProfile: (data: { name?: string; venmoUsername?: string | null }) => Promise<void>;
   logout: () => void;
   isLoading: boolean;
   isGuest: boolean;
@@ -27,7 +29,7 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue>({
   user: null, token: null,
-  login: async () => {}, register: async () => {}, logout: () => {},
+  login: async () => {}, register: async () => {}, updateProfile: async () => {}, logout: () => {},
   isLoading: true,
   isGuest: false, guestExpired: false, guestDaysLeft: null,
   startGuest: async () => {},
@@ -70,6 +72,17 @@ async function authFetch(path: string, body: object) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Request failed");
+  return data;
+}
+
+async function authFetchWithToken(path: string, method: string, token: string, body: object) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
   });
   const data = await res.json();
@@ -139,8 +152,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     queryClient.invalidateQueries(); // clear any stale cache
   }, []);
 
-  const register = useCallback(async (email: string, name: string, password: string) => {
-    const data = await authFetch("/api/auth/register", { email, name, password });
+  const register = useCallback(async (email: string, name: string, password: string, venmoUsername?: string) => {
+    const data = await authFetch("/api/auth/register", { email, name, password, venmoUsername });
     setGuestMode(false);
     setIsGuest(false);
     setGuestExpired(false);
@@ -150,6 +163,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setAuthToken(data.token);  // immediately available to all API calls
     queryClient.invalidateQueries();
   }, []);
+
+  const updateProfile = useCallback(async (data: { name?: string; venmoUsername?: string | null }) => {
+    if (!token) throw new Error("Not authenticated");
+    const updated = await authFetchWithToken("/api/auth/profile", "PATCH", token, data);
+    setUser(updated);
+    saveAuth(token, updated);
+  }, [token]);
 
   const logout = useCallback(() => {
     setGuestMode(false);
@@ -164,7 +184,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider value={{
-      user, token, login, register, logout, isLoading,
+      user, token, login, register, updateProfile, logout, isLoading,
       isGuest, guestExpired, guestDaysLeft: guestDaysLeftState, startGuest,
     }}>
       {children}

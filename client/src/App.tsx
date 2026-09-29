@@ -12,6 +12,7 @@ import GroupDetailPage from "@/pages/GroupDetailPage";
 import SessionDetailPage from "@/pages/SessionDetailPage";
 import BalancesPage from "@/pages/BalancesPage";
 import ReportPage from "@/pages/ReportPage";
+import ProfilePage from "@/pages/ProfilePage";
 import NotFound from "@/pages/not-found";
 import AdminPage from "@/pages/AdminPage";
 import { FeedbackButton } from "@/components/FeedbackButton";
@@ -70,6 +71,7 @@ function AppRoutes() {
         <Route path="/groups/:groupId/sessions/:sessionId" component={SessionDetailPage} />
         <Route path="/groups/:groupId/balances" component={BalancesPage} />
         <Route path="/groups/:groupId/report" component={ReportPage} />
+        <Route path="/profile" component={ProfilePage} />
         <Route path="/admin" component={AdminGuard} />
         <Route component={NotFound} />
       </Switch>

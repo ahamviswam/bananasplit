@@ -76,7 +76,7 @@ export function registerRoutes(httpServer: Server, app: Express) {
 
   // ── Auth routes (public — no auth middleware) ────────────────────────────────
   app.post("/api/auth/register", async (req, res) => {
-    const { email, name, password } = req.body;
+    const { email, name, password, venmoUsername } = req.body;
     if (!email || !name || !password) {
       return res.status(400).json({ error: "Email, name and password are required" });
     }
@@ -92,10 +92,11 @@ export function registerRoutes(httpServer: Server, app: Express) {
       email: email.toLowerCase().trim(),
       name: name.trim(),
       passwordHash,
+      venmoUsername: (venmoUsername || "").trim().replace(/^@/, "") || null,
       createdAt: new Date().toISOString(),
     });
     const token = signToken({ userId: user.id, email: user.email, name: user.name, isAdmin: user.isAdmin });
-    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, isAdmin: user.isAdmin } });
+    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, venmoUsername: user.venmoUsername, isAdmin: user.isAdmin } });
   });
 
   app.post("/api/auth/login", async (req, res) => {
@@ -112,12 +113,30 @@ export function registerRoutes(httpServer: Server, app: Express) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
     const token = signToken({ userId: user.id, email: user.email, name: user.name, isAdmin: user.isAdmin });
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name, isAdmin: user.isAdmin } });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, venmoUsername: user.venmoUsername, isAdmin: user.isAdmin } });
   });
 
   app.get("/api/auth/me", authMiddleware, (req, res) => {
     const user = getUser(req);
-    res.json({ id: user.userId, email: user.email, name: user.name });
+    const record = storage.getUserById(user.userId);
+    if (!record) return res.status(404).json({ error: "User not found" });
+    res.json({ id: record.id, email: record.email, name: record.name, venmoUsername: record.venmoUsername });
+  });
+
+  app.patch("/api/auth/profile", authMiddleware, (req, res) => {
+    const user = getUser(req);
+    const { name, venmoUsername } = req.body;
+    const data: { name?: string; venmoUsername?: string | null } = {};
+    if (typeof name === "string") {
+      if (!name.trim()) return res.status(400).json({ error: "Name cannot be empty" });
+      data.name = name.trim();
+    }
+    if (typeof venmoUsername === "string" || venmoUsername === null) {
+      data.venmoUsername = venmoUsername ? venmoUsername.trim().replace(/^@/, "") : null;
+    }
+    const updated = storage.updateUser(user.userId, data);
+    if (!updated) return res.status(404).json({ error: "User not found" });
+    res.json({ id: updated.id, email: updated.email, name: updated.name, venmoUsername: updated.venmoUsername });
   });
 
   const WEB_BASE_URL = process.env.WEB_BASE_URL || "https://bananasplit-production.up.railway.app";

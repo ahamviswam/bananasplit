@@ -28,6 +28,7 @@ export default function AuthPage() {
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [venmoUsername, setVenmoUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -78,7 +79,7 @@ export default function AuthPage() {
     setIsLoading(true);
     try {
       if (mode === "login") await login(email.trim(), password);
-      else await register(email.trim(), name.trim(), password);
+      else await register(email.trim(), name.trim(), password, venmoUsername.trim());
     } catch (err: any) {
       setError(err.message || "Something went wrong. Please try again.");
     } finally {
@@ -216,6 +217,24 @@ export default function AuthPage() {
                     className="bg-white/60 border-border/50 focus:border-primary rounded-xl"
                     data-testid="input-name"
                   />
+                </div>
+              )}
+
+              {/* Venmo handle (register only, optional) */}
+              {mode === "register" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="venmo" className="text-sm font-medium">
+                    Venmo username <span className="text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Input
+                    id="venmo"
+                    placeholder="your-venmo-handle (no @)"
+                    value={venmoUsername}
+                    onChange={e => setVenmoUsername(e.target.value.replace(/^@/, ""))}
+                    className="bg-white/60 border-border/50 focus:border-primary rounded-xl"
+                    data-testid="input-venmo-username"
+                  />
+                  <p className="text-xs text-muted-foreground">Lets others pay you back straight from Settle Up. Add it later from your profile if you'd rather skip it now.</p>
                 </div>
               )}
 
