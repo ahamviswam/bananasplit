@@ -3,7 +3,7 @@ import { useParams } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Plus, Trash2, Clock, Users, Receipt,
-  ChevronRight, ChevronLeft, Swords, RefreshCw
+  ChevronRight, ChevronLeft, Swords, RefreshCw, UserPlus
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -224,6 +224,55 @@ function RoundRobinScheduler({
 }
 
 // ── Add Expense Dialog ─────────────────────────────────────────────────────────
+// ── Add Participant Dialog ────────────────────────────────────────────────────
+function AddParticipantDialog({
+  members, participantIds, open, onClose, onAdd, isPending,
+}: {
+  members: Member[];
+  participantIds: number[];
+  open: boolean;
+  onClose: () => void;
+  onAdd: (memberId: number) => void;
+  isPending: boolean;
+}) {
+  const available = members.filter((m) => !participantIds.includes(m.id));
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add a player</DialogTitle>
+        </DialogHeader>
+        {available.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            Everyone in this group is already in the session.
+          </p>
+        ) : (
+          <div className="space-y-1.5 max-h-80 overflow-y-auto">
+            {available.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                disabled={isPending}
+                onClick={() => onAdd(m.id)}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg hover-elevate text-left disabled:opacity-50"
+                data-testid={`btn-add-player-${m.id}`}
+              >
+                <Avatar className="w-7 h-7">
+                  <AvatarFallback style={{ backgroundColor: m.color, fontSize: "10px" }}>
+                    {getInitials(m.name)}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="text-sm font-medium">{m.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function AddExpenseDialog({
   sessionId, groupId, members, participantIds, open, onClose,
 }: {
@@ -440,6 +489,7 @@ export default function SessionDetailPage() {
   const gid = Number(groupId);
   const sid = Number(sessionId);
   const [showAddExpense, setShowAddExpense] = useState(false);
+  const [showAddParticipant, setShowAddParticipant] = useState(false);
   const { toast } = useToast();
 
   const { data: session, isLoading: loadingSession } = useQuery<Session>({
@@ -470,6 +520,19 @@ export default function SessionDetailPage() {
   const participantIds: number[] = session
     ? JSON.parse(session.participantIds || "[]")
     : [];
+
+  const addParticipantMutation = useMutation({
+    mutationFn: (memberId: number) =>
+      apiRequest("PATCH", `/api/sessions/${sid}`, {
+        participantIds: JSON.stringify([...participantIds, memberId]),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sessions", sid] });
+      queryClient.invalidateQueries({ queryKey: ["/api/groups", gid, "balances"] });
+      setShowAddParticipant(false);
+      toast({ title: "Player added — games reshuffled" });
+    },
+  });
   const playtimeData: { memberId: number; minutes: number }[] = session
     ? JSON.parse(session.playtimeData || "[]")
     : [];
@@ -558,9 +621,18 @@ export default function SessionDetailPage() {
 
       {/* Participants row */}
       <div className="mb-6">
-        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-          Participants
-        </h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+            Participants
+          </h3>
+          <Button
+            variant="outline" size="sm"
+            onClick={() => setShowAddParticipant(true)}
+            data-testid="btn-add-participant"
+          >
+            <UserPlus className="w-3.5 h-3.5 mr-1.5" /> Add Player
+          </Button>
+        </div>
         <div className="flex flex-wrap gap-2">
           {participantIds.map((id) => {
             const m = memberMap[id];
@@ -618,6 +690,7 @@ export default function SessionDetailPage() {
         {/* ── Games Tab ── */}
         <TabsContent value="games">
           <RoundRobinScheduler
+            key={participantIds.join(",")}
             participantIds={participantIds}
             numCourts={session.numCourts ?? 1}
             memberMap={memberMap}
@@ -721,6 +794,15 @@ export default function SessionDetailPage() {
         participantIds={participantIds}
         open={showAddExpense}
         onClose={() => setShowAddExpense(false)}
+      />
+
+      <AddParticipantDialog
+        members={members}
+        participantIds={participantIds}
+        open={showAddParticipant}
+        onClose={() => setShowAddParticipant(false)}
+        onAdd={(memberId) => addParticipantMutation.mutate(memberId)}
+        isPending={addParticipantMutation.isPending}
       />
     </AppShell>
   );

@@ -235,11 +235,24 @@ function NewSessionDialog({
             </div>
             <div className="space-y-1.5">
               <Label>No. of courts</Label>
-              <Input
-                type="number" min="1" max="10" placeholder="1"
-                value={numCourts} onChange={e => setNumCourts(e.target.value)}
-                data-testid="input-num-courts"
-              />
+              <div className="flex gap-1.5">
+                {["1", "2", "3", "4"].map(n => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setNumCourts(n)}
+                    className={cn(
+                      "flex-1 h-9 rounded-lg text-sm font-semibold border transition-colors",
+                      numCourts === n
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background border-border hover:bg-muted"
+                    )}
+                    data-testid={`btn-num-courts-${n}`}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
